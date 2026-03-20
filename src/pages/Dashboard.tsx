@@ -4,13 +4,15 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from "recharts";
-import { TrendingUp, TrendingDown, Wallet, Target, ArrowUpRight, ArrowDownRight, Plus } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Target, Plus } from "lucide-react";
 import { StatCard } from "@/components/StatCard";
 import { GlassCard } from "@/components/StatCard";
 import { PageHeader } from "@/components/UI";
 import { Modal } from "@/components/Modal";
 import { transactions, monthlyData, categorySpending, budgets, goals } from "@/data/mockData";
+import { formatINR } from "@/utils/currency";
 import { cn } from "@/lib/utils";
+import toast from "react-hot-toast";
 
 const RADIAN = Math.PI / 180;
 const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
@@ -19,7 +21,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
   if (percent < 0.06) return null;
   return (
-    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" className="text-xs font-semibold" fontSize={11}>
+    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={600}>
       {`${(percent * 100).toFixed(0)}%`}
     </text>
   );
@@ -32,7 +34,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         <p className="font-medium text-foreground mb-1">{label}</p>
         {payload.map((p: any) => (
           <p key={p.name} style={{ color: p.color }} className="font-medium">
-            {p.name}: ${p.value.toLocaleString()}
+            {p.name}: ₹{Number(p.value).toLocaleString("en-IN")}
           </p>
         ))}
       </div>
@@ -43,6 +45,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function Dashboard() {
   const [addModal, setAddModal] = useState(false);
+  const [txType, setTxType] = useState<"income" | "expense">("expense");
   const recentTransactions = transactions.slice(0, 7);
   const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const totalExpenses = Math.abs(transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0));
@@ -50,7 +53,7 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <PageHeader title="Dashboard" subtitle="Welcome back, Alex! Here's your financial overview.">
+      <PageHeader title="Dashboard" subtitle="Welcome back, Arjun! Here's your financial overview.">
         <button
           onClick={() => setAddModal(true)}
           className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity"
@@ -61,50 +64,17 @@ export default function Dashboard() {
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard
-          title="Total Balance"
-          value={`$${balance.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
-          subtitle="Across all accounts"
-          icon={<Wallet size={20} />}
-          trend={{ value: 8.2, label: "vs last month" }}
-          gradient="gradient-primary"
-          delay={0}
-        />
-        <StatCard
-          title="Monthly Income"
-          value={`$${totalIncome.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
-          subtitle="This month"
-          icon={<TrendingUp size={20} />}
-          trend={{ value: 12.5, label: "vs last month" }}
-          gradient="bg-gradient-income"
-          delay={1}
-        />
-        <StatCard
-          title="Monthly Expenses"
-          value={`$${totalExpenses.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
-          subtitle="This month"
-          icon={<TrendingDown size={20} />}
-          trend={{ value: -3.8, label: "vs last month" }}
-          gradient="bg-gradient-expense"
-          delay={2}
-        />
-        <StatCard
-          title="Savings Rate"
-          value="30.2%"
-          subtitle="Of monthly income"
-          icon={<Target size={20} />}
-          trend={{ value: 2.1, label: "vs last month" }}
-          gradient="bg-gradient-savings"
-          delay={3}
-        />
+        <StatCard title="Total Balance" value={formatINR(balance)} subtitle="Across all accounts" icon={<Wallet size={20} />} trend={{ value: 8.2, label: "vs last month" }} gradient="gradient-primary" delay={0} />
+        <StatCard title="Monthly Income" value={formatINR(totalIncome)} subtitle="This month" icon={<TrendingUp size={20} />} trend={{ value: 12.5, label: "vs last month" }} gradient="bg-gradient-income" delay={1} />
+        <StatCard title="Monthly Expenses" value={formatINR(totalExpenses)} subtitle="This month" icon={<TrendingDown size={20} />} trend={{ value: -3.8, label: "vs last month" }} gradient="bg-gradient-expense" delay={2} />
+        <StatCard title="Savings Rate" value="33.5%" subtitle="Of monthly income" icon={<Target size={20} />} trend={{ value: 2.1, label: "vs last month" }} gradient="bg-gradient-savings" delay={3} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        {/* Area Chart */}
         <GlassCard className="lg:col-span-2 p-5" delay={4}>
           <h3 className="font-semibold text-foreground mb-4">Income vs Expenses</h3>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={monthlyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+            <AreaChart data={monthlyData} margin={{ top: 5, right: 10, left: -5, bottom: 0 }}>
               <defs>
                 <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
@@ -117,7 +87,7 @@ export default function Dashboard() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
               <Tooltip content={<CustomTooltip />} />
               <Area type="monotone" dataKey="income" name="Income" stroke="#22c55e" strokeWidth={2} fill="url(#incomeGrad)" />
               <Area type="monotone" dataKey="expenses" name="Expenses" stroke="#ef4444" strokeWidth={2} fill="url(#expenseGrad)" />
@@ -125,7 +95,6 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </GlassCard>
 
-        {/* Pie Chart */}
         <GlassCard className="p-5" delay={5}>
           <h3 className="font-semibold text-foreground mb-4">Spending Breakdown</h3>
           <ResponsiveContainer width="100%" height={170}>
@@ -135,7 +104,7 @@ export default function Dashboard() {
                   <Cell key={index} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v: any) => `$${v.toFixed(2)}`} />
+              <Tooltip formatter={(v: any) => `₹${Number(v).toLocaleString("en-IN")}`} />
             </PieChart>
           </ResponsiveContainer>
           <div className="mt-2 space-y-1.5">
@@ -145,7 +114,7 @@ export default function Dashboard() {
                   <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
                   <span className="text-muted-foreground">{c.name}</span>
                 </div>
-                <span className="font-medium text-foreground">${c.value.toFixed(0)}</span>
+                <span className="font-medium text-foreground">₹{c.value.toLocaleString("en-IN")}</span>
               </div>
             ))}
           </div>
@@ -153,7 +122,6 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Recent Transactions */}
         <GlassCard className="lg:col-span-2 p-5" delay={6}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-foreground">Recent Transactions</h3>
@@ -173,17 +141,16 @@ export default function Dashboard() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
-                  <p className="text-xs text-muted-foreground">{t.category} · {new Date(t.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p>
+                  <p className="text-xs text-muted-foreground">{t.category} · {new Date(t.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}</p>
                 </div>
                 <div className={cn("text-sm font-semibold flex-shrink-0", t.type === "income" ? "text-success" : "text-destructive")}>
-                  {t.type === "income" ? "+" : ""}${Math.abs(t.amount).toFixed(2)}
+                  {t.type === "income" ? "+" : "-"}₹{Math.abs(t.amount).toLocaleString("en-IN")}
                 </div>
               </motion.div>
             ))}
           </div>
         </GlassCard>
 
-        {/* Budget Overview */}
         <GlassCard className="p-5" delay={7}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-foreground">Budget Status</h3>
@@ -200,7 +167,7 @@ export default function Dashboard() {
                       <span>{b.icon}</span> {b.category}
                     </span>
                     <span className={cn("font-semibold", isOver ? "text-destructive" : "text-muted-foreground")}>
-                      ${b.spent.toFixed(0)} / ${b.allocated}
+                      ₹{b.spent.toLocaleString("en-IN")} / ₹{b.allocated.toLocaleString("en-IN")}
                     </span>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -208,7 +175,7 @@ export default function Dashboard() {
                       initial={{ width: 0 }}
                       animate={{ width: `${pct}%` }}
                       transition={{ delay: 0.8, duration: 0.6, ease: "easeOut" }}
-                      className={cn("h-full rounded-full", isOver ? "bg-destructive" : "bg-primary")}
+                      className={cn("h-full rounded-full", isOver ? "bg-destructive" : "")}
                       style={{ backgroundColor: isOver ? undefined : b.color }}
                     />
                   </div>
@@ -223,25 +190,37 @@ export default function Dashboard() {
       <Modal open={addModal} onClose={() => setAddModal(false)} title="Add Transaction">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <button className="py-2.5 rounded-xl border-2 border-success/50 bg-success/10 text-success text-sm font-medium">💰 Income</button>
-            <button className="py-2.5 rounded-xl border-2 border-destructive bg-destructive/10 text-destructive text-sm font-medium">💸 Expense</button>
+            <button
+              onClick={() => setTxType("income")}
+              className={cn("py-2.5 rounded-xl border-2 text-sm font-medium transition-colors", txType === "income" ? "border-success bg-success/10 text-success" : "border-border text-muted-foreground hover:border-success/50")}
+            >
+              💰 Income
+            </button>
+            <button
+              onClick={() => setTxType("expense")}
+              className={cn("py-2.5 rounded-xl border-2 text-sm font-medium transition-colors", txType === "expense" ? "border-destructive bg-destructive/10 text-destructive" : "border-border text-muted-foreground hover:border-destructive/50")}
+            >
+              💸 Expense
+            </button>
           </div>
-          {["Description", "Amount", "Date"].map((label) => (
+          {[{ label: "Description", type: "text", placeholder: "Enter description" },
+            { label: "Amount (₹)", type: "number", placeholder: "0.00" },
+            { label: "Date", type: "date", placeholder: "" }].map(({ label, type, placeholder }) => (
             <div key={label}>
               <label className="text-xs font-medium text-muted-foreground block mb-1">{label}</label>
-              <input type={label === "Amount" ? "number" : label === "Date" ? "date" : "text"} placeholder={label === "Amount" ? "0.00" : `Enter ${label.toLowerCase()}`}
+              <input type={type} placeholder={placeholder}
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors text-foreground" />
             </div>
           ))}
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Category</label>
-            <select className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground">
-              {["Food & Dining", "Transportation", "Shopping", "Entertainment", "Health", "Bills"].map(c => <option key={c}>{c}</option>)}
+            <select className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground">
+              {["Food & Dining", "Transportation", "Shopping", "Entertainment", "Health & Fitness", "Bills & Utilities", "Education", "Income"].map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={() => setAddModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-            <button onClick={() => setAddModal(false)} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Save</button>
+            <button onClick={() => { setAddModal(false); toast.success("Transaction added!"); }} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Save</button>
           </div>
         </div>
       </Modal>
