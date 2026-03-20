@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Edit3, Trash2 } from "lucide-react";
+import { Plus, Edit3 } from "lucide-react";
 import { PageHeader, Badge } from "@/components/UI";
 import { GlassCard } from "@/components/StatCard";
 import { Modal } from "@/components/Modal";
 import { budgets } from "@/data/mockData";
 import { cn } from "@/lib/utils";
+import toast from "react-hot-toast";
 
 export default function Budgets() {
   const [addModal, setAddModal] = useState(false);
@@ -23,11 +24,10 @@ export default function Budgets() {
         </button>
       </PageHeader>
 
-      {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: "Total Allocated", value: `$${totalAllocated.toLocaleString()}`, sub: "per month", color: "text-primary" },
-          { label: "Total Spent", value: `$${totalSpent.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, sub: `${((totalSpent / totalAllocated) * 100).toFixed(0)}% of budget`, color: totalSpent > totalAllocated ? "text-destructive" : "text-foreground" },
+          { label: "Total Allocated", value: `₹${totalAllocated.toLocaleString("en-IN")}`, sub: "per month", color: "text-primary" },
+          { label: "Total Spent", value: `₹${totalSpent.toLocaleString("en-IN")}`, sub: `${((totalSpent / totalAllocated) * 100).toFixed(0)}% of budget`, color: totalSpent > totalAllocated ? "text-destructive" : "text-foreground" },
           { label: "Over Budget", value: `${overBudget}`, sub: `of ${budgets.length} categories`, color: overBudget > 0 ? "text-destructive" : "text-success" },
         ].map((s, i) => (
           <GlassCard key={s.label} className="p-5 text-center" delay={i}>
@@ -38,7 +38,6 @@ export default function Budgets() {
         ))}
       </div>
 
-      {/* Budget Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {budgets.map((b, i) => {
           const pct = Math.min((b.spent / b.allocated) * 100, 100);
@@ -47,51 +46,33 @@ export default function Budgets() {
           const isWarning = pct >= 80 && !isOver;
 
           return (
-            <motion.div
-              key={b.id}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.08 }}
-              className="glass-card rounded-xl p-5 hover-lift"
-            >
+            <motion.div key={b.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="glass-card rounded-xl p-5 hover-lift">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ backgroundColor: b.color + "20" }}>
-                    {b.icon}
-                  </div>
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ backgroundColor: b.color + "20" }}>{b.icon}</div>
                   <div>
                     <h3 className="font-semibold text-foreground">{b.category}</h3>
-                    <p className="text-xs text-muted-foreground">${b.allocated} / month limit</p>
+                    <p className="text-xs text-muted-foreground">₹{b.allocated.toLocaleString("en-IN")} / month limit</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Badge variant={isOver ? "destructive" : isWarning ? "warning" : "success"}>
-                    {isOver ? "Over" : isWarning ? "Warning" : "On Track"}
-                  </Badge>
-                  <button onClick={() => setEditItem(b)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
-                    <Edit3 size={14} />
-                  </button>
+                  <Badge variant={isOver ? "destructive" : isWarning ? "warning" : "success"}>{isOver ? "Over" : isWarning ? "Warning" : "On Track"}</Badge>
+                  <button onClick={() => setEditItem(b)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"><Edit3 size={14} /></button>
                 </div>
               </div>
-
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Spent</span>
-                  <span className={cn("font-semibold", isOver ? "text-destructive" : "text-foreground")}>${b.spent.toFixed(2)}</span>
+                  <span className={cn("font-semibold", isOver ? "text-destructive" : "text-foreground")}>₹{b.spent.toLocaleString("en-IN")}</span>
                 </div>
                 <div className="h-3 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${pct}%` }}
-                    transition={{ delay: 0.4 + i * 0.08, duration: 0.7, ease: "easeOut" }}
-                    className="h-full rounded-full"
-                    style={{ backgroundColor: isOver ? "#ef4444" : isWarning ? "#f59e0b" : b.color }}
-                  />
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ delay: 0.4 + i * 0.08, duration: 0.7, ease: "easeOut" }}
+                    className="h-full rounded-full" style={{ backgroundColor: isOver ? "#ef4444" : isWarning ? "#f59e0b" : b.color }} />
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>{pct.toFixed(0)}% used</span>
                   <span className={cn(remaining < 0 ? "text-destructive font-medium" : "")}>
-                    {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}
+                    {remaining < 0 ? `₹${Math.abs(remaining).toLocaleString("en-IN")} over` : `₹${remaining.toLocaleString("en-IN")} left`}
                   </span>
                 </div>
               </div>
@@ -109,13 +90,12 @@ export default function Budgets() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Monthly Limit ($)</label>
-            <input type="number" defaultValue={editItem?.allocated} placeholder="0.00"
-              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground" />
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Monthly Limit (₹)</label>
+            <input type="number" defaultValue={editItem?.allocated} placeholder="0" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground" />
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={() => { setAddModal(false); setEditItem(null); }} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-            <button className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Save Budget</button>
+            <button onClick={() => { setAddModal(false); setEditItem(null); toast.success(editItem ? "Budget updated!" : "Budget created!"); }} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Save Budget</button>
           </div>
         </div>
       </Modal>
