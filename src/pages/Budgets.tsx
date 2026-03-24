@@ -1,25 +1,77 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Edit3 } from "lucide-react";
+import { Plus, Edit3, Trash2 } from "lucide-react";
 import { PageHeader, Badge } from "@/components/UI";
 import { GlassCard } from "@/components/StatCard";
 import { Modal } from "@/components/Modal";
-import { budgets } from "@/data/mockData";
+import { budgets as initialBudgets } from "@/data/mockData";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
+const CATEGORIES = ["Food & Dining", "Transportation", "Shopping", "Entertainment", "Health & Fitness", "Bills & Utilities"];
+const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+const emptyForm = { category: CATEGORIES[0], allocated: "", spent: "" };
+
 export default function Budgets() {
+  const [budgets, setBudgets] = useState(initialBudgets);
   const [addModal, setAddModal] = useState(false);
   const [editItem, setEditItem] = useState<typeof budgets[0] | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const totalAllocated = budgets.reduce((s, b) => s + b.allocated, 0);
   const totalSpent = budgets.reduce((s, b) => s + b.spent, 0);
   const overBudget = budgets.filter(b => b.spent > b.allocated).length;
 
+  const openAdd = () => {
+    setForm(emptyForm);
+    setFormErrors({});
+    setEditItem(null);
+    setAddModal(true);
+  };
+
+  const openEdit = (b: typeof budgets[0]) => {
+    setForm({ category: b.category, allocated: String(b.allocated), spent: String(b.spent) });
+    setFormErrors({});
+    setEditItem(b);
+    setAddModal(true);
+  };
+
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!form.allocated || Number(form.allocated) <= 0) e.allocated = "Enter a valid limit.";
+    if (form.spent && Number(form.spent) < 0) e.spent = "Spent cannot be negative.";
+    return e;
+  };
+
+  const handleSave = () => {
+    const errs = validate();
+    if (Object.keys(errs).length) { setFormErrors(errs); return; }
+    const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    if (editItem) {
+      setBudgets(prev => prev.map(b => b.id === editItem.id ? {
+        ...b, category: form.category, allocated: Number(form.allocated), spent: Number(form.spent) || b.spent
+      } : b));
+      toast.success("Budget updated! ✅");
+    } else {
+      const icons: Record<string, string> = { "Food & Dining": "🍽️", "Transportation": "🚗", "Shopping": "🛍️", "Entertainment": "🎬", "Health & Fitness": "💪", "Bills & Utilities": "⚡" };
+      setBudgets(prev => [...prev, { id: Date.now().toString(), category: form.category, icon: icons[form.category] || "💰", allocated: Number(form.allocated), spent: Number(form.spent) || 0, color }]);
+      toast.success("Budget created! 🎯");
+    }
+    setAddModal(false); setEditItem(null);
+  };
+
+  const handleDelete = () => {
+    if (!editItem) return;
+    setBudgets(prev => prev.filter(b => b.id !== editItem.id));
+    toast.success("Budget deleted!");
+    setAddModal(false); setEditItem(null);
+  };
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <PageHeader title="Budgets" subtitle="Manage your monthly spending limits">
-        <button onClick={() => setAddModal(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">
+        <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">
           <Plus size={16} /> Add Budget
         </button>
       </PageHeader>
@@ -57,7 +109,7 @@ export default function Budgets() {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Badge variant={isOver ? "destructive" : isWarning ? "warning" : "success"}>{isOver ? "Over" : isWarning ? "Warning" : "On Track"}</Badge>
-                  <button onClick={() => setEditItem(b)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"><Edit3 size={14} /></button>
+                  <button onClick={() => openEdit(b)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"><Edit3 size={14} /></button>
                 </div>
               </div>
               <div className="space-y-2">
@@ -81,21 +133,32 @@ export default function Budgets() {
         })}
       </div>
 
-      <Modal open={addModal || !!editItem} onClose={() => { setAddModal(false); setEditItem(null); }} title={editItem ? "Edit Budget" : "Add Budget"}>
+      <Modal open={addModal} onClose={() => { setAddModal(false); setEditItem(null); }} title={editItem ? "Edit Budget" : "Add Budget"}>
         <div className="space-y-4">
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Category</label>
-            <select defaultValue={editItem?.category} className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground">
-              {["Food & Dining", "Transportation", "Shopping", "Entertainment", "Health & Fitness", "Bills & Utilities"].map(c => <option key={c}>{c}</option>)}
+            <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground">
+              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Monthly Limit (₹)</label>
-            <input type="number" defaultValue={editItem?.allocated} placeholder="0" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground" />
+            <input type="number" value={form.allocated} onChange={e => setForm(p => ({ ...p, allocated: e.target.value }))} placeholder="0" min="0"
+              className={cn("w-full px-3 py-2 text-sm bg-muted rounded-lg border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground", formErrors.allocated ? "border-destructive" : "border-border")} />
+            {formErrors.allocated && <p className="text-xs text-destructive mt-1">{formErrors.allocated}</p>}
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Amount Spent So Far (₹)</label>
+            <input type="number" value={form.spent} onChange={e => setForm(p => ({ ...p, spent: e.target.value }))} placeholder="0" min="0"
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground" />
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={() => { setAddModal(false); setEditItem(null); }} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-            <button onClick={() => { setAddModal(false); setEditItem(null); toast.success(editItem ? "Budget updated!" : "Budget created!"); }} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Save Budget</button>
+            {editItem && <button onClick={handleDelete} className="p-2.5 px-4 rounded-xl bg-destructive/10 text-destructive text-sm font-medium hover:bg-destructive/20 transition-colors flex items-center gap-1.5"><Trash2 size={14} /></button>}
+            <button onClick={handleSave} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">
+              {editItem ? "Update Budget" : "Save Budget"}
+            </button>
           </div>
         </div>
       </Modal>
