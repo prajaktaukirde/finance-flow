@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, ArrowLeftRight, Target, PieChart, BarChart3,
   FileText, RefreshCcw, Bell, User, Settings, CalendarDays,
-  HelpCircle, Info, ChevronLeft, ChevronRight, Wallet, X, Menu
+  HelpCircle, Info, ChevronLeft, ChevronRight, Wallet, X, LogIn, UserPlus
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/useTheme";
