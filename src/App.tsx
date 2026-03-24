@@ -44,6 +44,10 @@ const App = () => (
       />
       <BrowserRouter>
         <Routes>
+          {/* Auth routes — no sidebar */}
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/signup" element={<SignUp />} />
+          {/* App routes — with sidebar */}
           <Route element={<MainLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/transactions" element={<Transactions />} />
