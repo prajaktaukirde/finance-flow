@@ -130,8 +130,52 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: S
         })}
       </nav>
 
-      {/* Toggle button */}
-      <div className="p-2 border-t border-sidebar-border">
+      {/* Auth links + Toggle */}
+      <div className="p-2 border-t border-sidebar-border space-y-1">
+        <Link
+          to="/signin"
+          onClick={onMobileClose}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all text-primary hover:bg-primary/10 group relative",
+            collapsed && "justify-center px-2"
+          )}
+        >
+          <LogIn size={16} className="flex-shrink-0" />
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                Sign In
+              </motion.span>
+            )}
+          </AnimatePresence>
+          {collapsed && (
+            <div className="absolute left-full ml-3 px-2 py-1 bg-popover text-popover-foreground text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border border-border">
+              Sign In
+            </div>
+          )}
+        </Link>
+        <Link
+          to="/signup"
+          onClick={onMobileClose}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all gradient-primary text-primary-foreground shadow-blue hover:opacity-90 group relative",
+            collapsed && "justify-center px-2"
+          )}
+        >
+          <UserPlus size={16} className="flex-shrink-0" />
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                Sign Up
+              </motion.span>
+            )}
+          </AnimatePresence>
+          {collapsed && (
+            <div className="absolute left-full ml-3 px-2 py-1 bg-popover text-popover-foreground text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border border-border">
+              Sign Up
+            </div>
+          )}
+        </Link>
         <button
           onClick={onToggle}
           className="hidden md:flex w-full items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
