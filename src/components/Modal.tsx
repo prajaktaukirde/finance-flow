@@ -31,9 +31,9 @@ export function Modal({ open, onClose, title, children, className, size = "md" }
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ duration: 0.2 }}
-            className={cn("relative w-full glass-card rounded-2xl p-6 z-10", sizeClass, className)}
+            className={cn("relative w-full glass-card rounded-2xl z-10 max-h-[90vh] flex flex-col", sizeClass, className)}
           >
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-border">
               <h2 className="text-lg font-semibold text-foreground">{title}</h2>
               <button
                 onClick={onClose}
@@ -42,7 +42,9 @@ export function Modal({ open, onClose, title, children, className, size = "md" }
                 <X size={18} />
               </button>
             </div>
-            {children}
+            <div className="p-6 pt-4 overflow-y-auto custom-scrollbar">
+              {children}
+            </div>
           </motion.div>
         </div>
       )}

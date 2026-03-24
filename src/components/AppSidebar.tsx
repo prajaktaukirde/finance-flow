@@ -48,7 +48,7 @@ export function AppSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: S
         <AnimatePresence>
           {!collapsed && (
             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.15 }}>
-              <p className="font-bold text-sidebar-foreground text-sm leading-tight">FinanceOS</p>
+              <p className="font-bold text-sidebar-foreground text-sm leading-tight">Finance Flow</p>
               <p className="text-xs text-muted-foreground">Personal Finance</p>
             </motion.div>
           )}

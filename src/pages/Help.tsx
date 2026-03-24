@@ -18,7 +18,7 @@ export default function Help() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {[{ icon: Book, label: "Documentation", desc: "Browse guides & tutorials", color: "text-primary" },
           { icon: MessageCircle, label: "Live Chat", desc: "Chat with support team", color: "text-success" },
-          { icon: Mail, label: "Email Support", desc: "support@financeos.app", color: "text-warning" }].map(({ icon: Icon, label, desc, color }, i) => (
+          { icon: Mail, label: "Email Support", desc: "support@financeflow.app", color: "text-warning" }].map(({ icon: Icon, label, desc, color }, i) => (
           <GlassCard key={label} className="p-4 text-center cursor-pointer hover-lift" delay={i}>
             <Icon size={24} className={`mx-auto mb-2 ${color}`} />
             <p className="font-medium text-foreground text-sm">{label}</p>

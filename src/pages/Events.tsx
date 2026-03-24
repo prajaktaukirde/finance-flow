@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Plus, Users, CalendarDays, ChevronRight, Trash2 } from "lucide-react";
+import { Plus, Users, CalendarDays, ChevronRight, Trash2, Edit2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader, Badge } from "@/components/UI";
 import { GlassCard } from "@/components/StatCard";
@@ -13,13 +13,30 @@ const emptyForm = { name: "", date: "", category: "Travel", members: "" };
 const CATEGORIES = ["Travel", "Party", "Dining", "Household", "Entertainment", "Sports", "Other"];
 const ICONS: Record<string, string> = { Travel: "✈️", Party: "🎉", Dining: "🍽️", Household: "🏠", Entertainment: "🎬", Sports: "⚽", Other: "📅" };
 
+const STORAGE_KEY = "finance-flow-events";
+
 export default function Events() {
-  const [events, setEvents] = useState(initialEvents);
+  const [events, setEvents] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : initialEvents;
+  });
+  const [editingEvent, setEditingEvent] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", date: "", category: "Travel" });
+  const [editModal, setEditModal] = useState(false);
+
+  // Persist events to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+  }, [events]);
   const [addModal, setAddModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const navigate = useNavigate();
-  const totalAmount = events.reduce((s, e) => s + e.totalAmount, 0);
+  // Calculate total from actual expenses, not stored totalAmount
+  const totalAmount = events.reduce((sum, event) => {
+    const eventTotal = event.expenses?.reduce((s: number, exp: typeof event.expenses[0]) => s + (exp.amount || 0), 0) || 0;
+    return sum + eventTotal;
+  }, 0);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -50,8 +67,40 @@ export default function Events() {
 
   const handleDelete = (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setEvents(prev => prev.filter(ev => ev.id !== id));
-    toast.success(`"${name}" deleted!`);
+    if (confirm(`Are you sure you want to delete "${name}"?`)) {
+      setEvents(prev => prev.filter(ev => ev.id !== id));
+      toast.success(`"${name}" deleted!`);
+    }
+  };
+
+  const handleEdit = (e: React.MouseEvent, event: typeof events[0]) => {
+    e.stopPropagation();
+    setEditingEvent(event.id);
+    setEditForm({ name: event.name, date: event.date, category: event.category });
+    setEditModal(true);
+  };
+
+  const handleUpdateEvent = () => {
+    if (!editForm.name.trim()) {
+      toast.error("Event name is required");
+      return;
+    }
+    setEvents(prev => prev.map(ev => 
+      ev.id === editingEvent 
+        ? { ...ev, name: editForm.name, date: editForm.date, category: editForm.category, icon: ICONS[editForm.category] || "📅" }
+        : ev
+    ));
+    toast.success("Event updated!");
+    setEditModal(false);
+    setEditingEvent(null);
+  };
+
+  const handleSettleEvent = (e: React.MouseEvent, eventId: string) => {
+    e.stopPropagation();
+    setEvents(prev => prev.map(ev => 
+      ev.id === eventId ? { ...ev, status: ev.status === "active" ? "settled" : "active" } : ev
+    ));
+    toast.success("Event status updated!");
   };
 
   return (
@@ -79,14 +128,22 @@ export default function Events() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {events.map((event, i) => {
-          const perPerson = event.members.length > 0 ? event.totalAmount / event.members.length : 0;
+          // Calculate totals dynamically from expenses
+          const calculatedTotal = event.expenses?.reduce((s: number, exp: typeof event.expenses[0]) => s + (exp.amount || 0), 0) || 0;
+          const perPerson = event.members.length > 0 ? calculatedTotal / event.members.length : 0;
           return (
             <motion.div key={event.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
               onClick={() => navigate(`/events/${event.id}`)} className="glass-card rounded-xl p-5 hover-lift cursor-pointer relative group">
-              <button onClick={(e) => handleDelete(event.id, event.name, e)}
-                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
-                <Trash2 size={14} />
-              </button>
+              <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                <button onClick={(e) => handleEdit(e, event)}
+                  className="p-1.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all">
+                  <Edit2 size={14} />
+                </button>
+                <button onClick={(e) => handleDelete(event.id, event.name, e)}
+                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
+                  <Trash2 size={14} />
+                </button>
+              </div>
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-2xl">{event.icon}</div>
@@ -109,7 +166,7 @@ export default function Events() {
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="bg-muted rounded-lg p-2.5">
                   <p className="text-muted-foreground">Total</p>
-                  <p className="font-bold text-foreground text-sm">₹{event.totalAmount.toLocaleString("en-IN")}</p>
+                  <p className="font-bold text-foreground text-sm">₹{calculatedTotal.toLocaleString("en-IN")}</p>
                 </div>
                 <div className="bg-muted rounded-lg p-2.5">
                   <p className="text-muted-foreground">Per Person</p>
@@ -118,7 +175,20 @@ export default function Events() {
               </div>
               <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><CalendarDays size={11} /> {new Date(event.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}</span>
-                <span className="flex items-center gap-1">{event.expenses.length} expenses <ChevronRight size={12} /></span>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={(e) => handleSettleEvent(e, event.id)}
+                    className={cn(
+                      "px-2 py-0.5 rounded text-xs font-medium transition-colors",
+                      event.status === "active" 
+                        ? "bg-success/20 text-success hover:bg-success/30" 
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    )}
+                  >
+                    {event.status === "active" ? "Mark Settled" : "Mark Active"}
+                  </button>
+                  <span className="flex items-center gap-1">{event.expenses.length} expenses <ChevronRight size={12} /></span>
+                </div>
               </div>
             </motion.div>
           );
@@ -172,6 +242,32 @@ export default function Events() {
           <div className="flex gap-3 pt-2">
             <button onClick={() => setAddModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
             <button onClick={handleCreate} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Create Event</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit Event">
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Event Name</label>
+            <input type="text" value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} placeholder="Event name"
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Date</label>
+            <input type="date" value={editForm.date} onChange={e => setEditForm(p => ({ ...p, date: e.target.value }))}
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Category</label>
+            <select value={editForm.category} onChange={e => setEditForm(p => ({ ...p, category: e.target.value }))}
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground">
+              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => setEditModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+            <button onClick={handleUpdateEvent} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Update Event</button>
           </div>
         </div>
       </Modal>

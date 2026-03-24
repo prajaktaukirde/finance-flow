@@ -38,7 +38,7 @@ export default function SignUp() {
     setLoading(true);
     await new Promise((r) => setTimeout(r, 1400));
     setLoading(false);
-    toast.success(`Welcome to FinanceOS, ${form.name.split(" ")[0]}! 🎊`);
+    toast.success(`Welcome to Finance Flow, ${form.name.split(" ")[0]}! 🎊`);
     setTimeout(() => navigate("/"), 800);
   };
 
@@ -63,7 +63,7 @@ export default function SignUp() {
           <div className="w-14 h-14 rounded-2xl gradient-primary flex items-center justify-center shadow-blue mb-3">
             <TrendingUp className="text-primary-foreground" size={28} />
           </div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">FinanceOS</h1>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Finance Flow</h1>
           <p className="text-muted-foreground text-sm mt-1">Start your financial journey today</p>
         </div>
 
@@ -167,7 +167,7 @@ export default function SignUp() {
             <Link to="/signin" className="text-primary font-semibold hover:underline">Sign In</Link>
           </p>
         </div>
-        <p className="text-center text-xs text-muted-foreground mt-6">© 2024 FinanceOS • Secure & Private</p>
+        <p className="text-center text-xs text-muted-foreground mt-6">© 2024 Finance Flow • Secure & Private</p>
       </div>
     </div>
   );
