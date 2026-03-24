@@ -45,6 +45,13 @@ export function MainLayout() {
             >
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
+            <Link
+              to="/signin"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+            >
+              <LogIn size={14} />
+              Sign In
+            </Link>
             <Link to="/profile" className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold shadow-blue">
               AJ
             </Link>
