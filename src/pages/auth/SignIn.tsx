@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff, TrendingUp } from "lucide-react";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { authAPI } from "@/services/api";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 export default function SignIn() {
   const navigate = useNavigate();
@@ -25,10 +27,25 @@ export default function SignIn() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    toast.success("Welcome back! Signed in successfully. 🎉");
-    setTimeout(() => navigate("/"), 800);
+    
+    try {
+      const response = await authAPI.login({
+        email: form.email,
+        password: form.password
+      });
+      
+      // Save token to localStorage
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data));
+      
+      toast.success("Welcome back! Signed in successfully. 🎉");
+      setTimeout(() => navigate("/"), 800);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Login failed');
+      setErrors({ general: error.response?.data?.message || 'Invalid credentials' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -114,7 +131,9 @@ export default function SignIn() {
             <div className="flex-1 h-px bg-border" />
           </div>
 
-          <div className="px-4 py-3 rounded-xl bg-primary/10 border border-primary/20 text-xs text-primary text-center">
+          <GoogleSignInButton onSuccess={() => navigate("/")} />
+
+          <div className="mt-4 px-4 py-3 rounded-xl bg-primary/10 border border-primary/20 text-xs text-primary text-center">
             🔐 Demo: Enter any valid email & password (6+ chars) to sign in
           </div>
 

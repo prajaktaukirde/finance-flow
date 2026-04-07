@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, User, Eye, EyeOff, TrendingUp, CheckCircle2 } from "lucide-react";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { authAPI } from "@/services/api";
 
 const passwordRules = [
   { label: "At least 8 characters", test: (p: string) => p.length >= 8 },
@@ -36,10 +37,25 @@ export default function SignUp() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1400));
-    setLoading(false);
-    toast.success(`Welcome to Finance Flow, ${form.name.split(" ")[0]}! 🎊`);
-    setTimeout(() => navigate("/"), 800);
+    
+    try {
+      const response = await authAPI.register({
+        name: form.name,
+        email: form.email,
+        password: form.password
+      });
+      
+      // Save token to localStorage
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data));
+      
+      toast.success(`Welcome to Finance Flow, ${response.data.name.split(" ")[0]}! 🎊`);
+      setTimeout(() => navigate("/"), 800);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const field = (key: keyof typeof form, value: string) => {

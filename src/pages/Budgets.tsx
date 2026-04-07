@@ -1,23 +1,39 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Plus, Edit3, Trash2 } from "lucide-react";
 import { PageHeader, Badge } from "@/components/UI";
 import { GlassCard } from "@/components/StatCard";
 import { Modal } from "@/components/Modal";
-import { budgets as initialBudgets } from "@/data/mockData";
 import { cn } from "@/lib/utils";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { budgetAPI } from "@/services/api";
 
 const CATEGORIES = ["Food & Dining", "Transportation", "Shopping", "Entertainment", "Health & Fitness", "Bills & Utilities"];
 const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
 const emptyForm = { category: CATEGORIES[0], allocated: "", spent: "" };
 
 export default function Budgets() {
-  const [budgets, setBudgets] = useState(initialBudgets);
+  const [budgets, setBudgets] = useState<any[]>([]);
   const [addModal, setAddModal] = useState(false);
-  const [editItem, setEditItem] = useState<typeof budgets[0] | null>(null);
+  const [editItem, setEditItem] = useState<any | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  // Fetch budgets from API
+  useEffect(() => {
+    const fetchBudgets = async () => {
+      try {
+        const response = await budgetAPI.getAll();
+        setBudgets(response.data);
+      } catch (error) {
+        toast.error('Failed to load budgets');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchBudgets();
+  }, []);
 
   const totalAllocated = budgets.reduce((s, b) => s + b.allocated, 0);
   const totalSpent = budgets.reduce((s, b) => s + b.spent, 0);
@@ -44,28 +60,49 @@ export default function Budgets() {
     return e;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const errs = validate();
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
     const color = COLORS[Math.floor(Math.random() * COLORS.length)];
-    if (editItem) {
-      setBudgets(prev => prev.map(b => b.id === editItem.id ? {
-        ...b, category: form.category, allocated: Number(form.allocated), spent: Number(form.spent) || b.spent
-      } : b));
-      toast.success("Budget updated! ✅");
-    } else {
-      const icons: Record<string, string> = { "Food & Dining": "🍽️", "Transportation": "🚗", "Shopping": "🛍️", "Entertainment": "🎬", "Health & Fitness": "💪", "Bills & Utilities": "⚡" };
-      setBudgets(prev => [...prev, { id: Date.now().toString(), category: form.category, icon: icons[form.category] || "💰", allocated: Number(form.allocated), spent: Number(form.spent) || 0, color }]);
-      toast.success("Budget created! 🎯");
+    const icons: Record<string, string> = { "Food & Dining": "🍽️", "Transportation": "🚗", "Shopping": "🛍️", "Entertainment": "🎬", "Health & Fitness": "💪", "Bills & Utilities": "⚡" };
+    
+    try {
+      if (editItem) {
+        const response = await budgetAPI.update(editItem._id, {
+          category: form.category,
+          allocated: Number(form.allocated),
+          spent: Number(form.spent) || editItem.spent
+        });
+        setBudgets(prev => prev.map(b => b._id === editItem._id ? response.data : b));
+        toast.success("Budget updated! ✅");
+      } else {
+        const response = await budgetAPI.create({
+          category: form.category,
+          icon: icons[form.category] || "💰",
+          allocated: Number(form.allocated),
+          spent: Number(form.spent) || 0,
+          color
+        });
+        setBudgets(prev => [...prev, response.data]);
+        toast.success("Budget created! 🎯");
+      }
+      setAddModal(false); setEditItem(null);
+    } catch (error: any) {
+      console.error('Budget save error:', error);
+      toast.error(error.response?.data?.message || 'Failed to save budget');
     }
-    setAddModal(false); setEditItem(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!editItem) return;
-    setBudgets(prev => prev.filter(b => b.id !== editItem.id));
-    toast.success("Budget deleted!");
-    setAddModal(false); setEditItem(null);
+    try {
+      await budgetAPI.delete(editItem._id);
+      setBudgets(prev => prev.filter(b => b._id !== editItem._id));
+      toast.success("Budget deleted!");
+      setAddModal(false); setEditItem(null);
+    } catch (error) {
+      toast.error('Failed to delete budget');
+    }
   };
 
   return (
@@ -98,7 +135,7 @@ export default function Budgets() {
           const isWarning = pct >= 80 && !isOver;
 
           return (
-            <motion.div key={b.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="glass-card rounded-xl p-5 hover-lift">
+            <motion.div key={b._id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="glass-card rounded-xl p-5 hover-lift">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ backgroundColor: b.color + "20" }}>{b.icon}</div>

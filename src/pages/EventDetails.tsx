@@ -1,196 +1,61 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Plus, Check, Users, DollarSign, Receipt, Trash2, Edit2, X } from "lucide-react";
+import { ArrowLeft, Plus, Check, Users, DollarSign, Receipt, Trash2, Edit2 } from "lucide-react";
 import { GlassCard } from "@/components/StatCard";
 import { Modal } from "@/components/Modal";
 import { Badge } from "@/components/UI";
-import { events as initialEvents } from "@/data/mockData";
 import { cn } from "@/lib/utils";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { eventAPI } from "@/services/api";
 
-const STORAGE_KEY = "finance-flow-events";
-
-// Component for adding members with autocomplete
-interface AddMemberFormProps {
-  allEvents: typeof initialEvents;
-  existingMembers: typeof initialEvents[0]["members"];
-  onAdd: (name: string, email?: string) => void;
-  onCancel: () => void;
+// Types
+interface Member {
+  id: string;
+  name: string;
+  avatar: string;
+  paid?: number;
+  owes?: number;
 }
 
-function AddMemberForm({ allEvents, existingMembers, onAdd, onCancel }: AddMemberFormProps) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  
-  // Get all unique member names from all events
-  const allMemberNames = Array.from(new Set(
-    allEvents.flatMap(e => e.members.map(m => m.name))
-  )).filter(n => n && !existingMembers.some(em => em.name.toLowerCase() === n.toLowerCase()));
-  
-  // Filter suggestions based on input
-  const suggestions = name.trim() 
-    ? allMemberNames.filter(n => n.toLowerCase().includes(name.toLowerCase()))
-    : allMemberNames;
-  
-  const handleSelect = (selectedName: string) => {
-    setName(selectedName);
-    setShowSuggestions(false);
-    // Try to find email from previous events
-    const prevMember = allEvents
-      .flatMap(e => e.members)
-      .find(m => m.name === selectedName);
-    if (prevMember && 'email' in prevMember) {
-      setEmail((prevMember as any).email || "");
-    }
-  };
-  
-  const handleSubmit = () => {
-    if (!name.trim()) {
-      toast.error("Please enter a name");
-      return;
-    }
-    onAdd(name.trim(), email.trim() || undefined);
-  };
-  
-  return (
-    <div className="space-y-4">
-      <div className="relative">
-        <label className="text-xs font-medium text-muted-foreground block mb-1">Name</label>
-        <input 
-          type="text" 
-          value={name} 
-          onChange={e => {
-            setName(e.target.value);
-            setShowSuggestions(true);
-          }}
-          onFocus={() => setShowSuggestions(true)}
-          placeholder="Type or select a name"
-          className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
-        />
-        
-        {/* Suggestions dropdown */}
-        {showSuggestions && suggestions.length > 0 && (
-          <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-40 overflow-y-auto">
-            <div className="p-1">
-              <p className="text-xs text-muted-foreground px-2 py-1">Previously used names (click to select)</p>
-              {suggestions.map(suggestion => (
-                <button
-                  key={suggestion}
-                  onClick={() => handleSelect(suggestion)}
-                  className="w-full text-left px-2 py-1.5 text-sm text-foreground hover:bg-muted rounded-md transition-colors"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        
-        {/* Click outside to close suggestions */}
-        {showSuggestions && (
-          <button
-            onClick={() => setShowSuggestions(false)}
-            className="fixed inset-0 z-0"
-            tabIndex={-1}
-          />
-        )}
-      </div>
-      
-      <div>
-        <label className="text-xs font-medium text-muted-foreground block mb-1">Email / Phone (optional)</label>
-        <input 
-          type="text" 
-          value={email} 
-          onChange={e => setEmail(e.target.value)}
-          placeholder="email or phone number"
-          className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
-        />
-      </div>
-      
-      <div className="flex gap-3 pt-2">
-        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-        <button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Add Member</button>
-      </div>
-    </div>
-  );
+interface Expense {
+  id: string;
+  description: string;
+  amount: number;
+  paidBy: string;
+  date: string;
+  splitType?: "equal" | "custom" | "selective";
+  customSplits?: Record<string, number>;
+  selectedMembers?: string[];
+  isSettlement?: boolean;
 }
 
-function computeSettlements(members: typeof initialEvents[0]["members"], expenses: typeof initialEvents[0]["expenses"]) {
-  if (members.length === 0) return { settlements: [] as { from: string; fromId: string; to: string; toId: string; amount: number }[], totalPerPerson: 0 };
-  
-  // Calculate what each person owes and paid
-  const balances = members.map(m => {
-    // Calculate total paid by this member
-    const paid = expenses.filter(e => e.paidBy === m.id).reduce((s, e) => s + e.amount, 0);
-    
-    // Calculate total owed by this member (based on split type)
-    let owed = 0;
-    for (const exp of expenses) {
-      const expAny = exp as any;
-      if (expAny.splitType === "custom" && expAny.customSplits) {
-        // Custom split - use the specific amount for this member
-        owed += expAny.customSplits[m.id] || 0;
-      } else if (expAny.splitType === "selective" && expAny.selectedMembers) {
-        // Selective split - only split among selected members
-        if (expAny.selectedMembers.includes(m.id)) {
-          owed += expAny.amount / expAny.selectedMembers.length;
-        }
-      } else {
-        // Equal split among all members
-        owed += expAny.amount / members.length;
-      }
-    }
-    
-    return { ...m, paid, owed, balance: paid - owed };
-  });
-  
-  const totalPerPerson = expenses.reduce((s, e) => s + e.amount, 0) / members.length;
-  
-  const settlements: { from: string; fromId: string; to: string; toId: string; amount: number }[] = [];
-  const debtors = balances.filter(b => b.balance < -0.01).map(b => ({ ...b }));
-  const creditors = balances.filter(b => b.balance > 0.01).map(b => ({ ...b }));
-  
-  debtors.forEach(debtor => {
-    creditors.forEach(creditor => {
-      if (Math.abs(debtor.balance) > 0.01 && creditor.balance > 0.01) {
-        const amount = Math.min(Math.abs(debtor.balance), creditor.balance);
-        settlements.push({ from: debtor.name, fromId: debtor.id, to: creditor.name, toId: creditor.id, amount });
-        debtor.balance += amount;
-        creditor.balance -= amount;
-      }
-    });
-  });
-  
-  return { settlements, totalPerPerson, balances };
+interface Event {
+  _id: string;
+  name: string;
+  icon: string;
+  date: string;
+  category: string;
+  totalAmount: number;
+  members: Member[];
+  expenses: Expense[];
+  status: "active" | "settled";
 }
 
 export default function EventDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   
-  // Load events from localStorage
-  const [allEvents, setAllEvents] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : initialEvents;
-  });
+  const [event, setEvent] = useState<Event | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [allEvents, setAllEvents] = useState<Event[]>([]);
   
-  const event = allEvents.find((e: typeof initialEvents[0]) => e.id === id);
-  
-  // Persist events whenever they change
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(allEvents));
-  }, [allEvents]);
-  
-  const updateEvent = (updates: Partial<typeof event>) => {
-    setAllEvents((prev: typeof initialEvents) => 
-      prev.map((e: typeof initialEvents[0]) => e.id === id ? { ...e, ...updates } : e)
-    );
-  };
-
+  // Modals
   const [addExpenseModal, setAddExpenseModal] = useState(false);
   const [addMemberModal, setAddMemberModal] = useState(false);
+  const [editExpenseModal, setEditExpenseModal] = useState(false);
+  
+  // Forms
   const [expenseForm, setExpenseForm] = useState({ 
     description: "", 
     amount: "", 
@@ -199,9 +64,9 @@ export default function EventDetails() {
     customSplits: {} as Record<string, string>,
     selectedMembers: [] as string[]
   });
-  const [memberForm, setMemberForm] = useState({ name: "", email: "" });
-  const [editingExpense, setEditingExpense] = useState<string | null>(null);
+  
   const [editExpenseForm, setEditExpenseForm] = useState({ 
+    id: "",
     description: "", 
     amount: "", 
     paidBy: "",
@@ -209,7 +74,31 @@ export default function EventDetails() {
     customSplits: {} as Record<string, string>,
     selectedMembers: [] as string[]
   });
-  const [editExpenseModal, setEditExpenseModal] = useState(false);
+  
+  const [memberForm, setMemberForm] = useState({ name: "" });
+
+  // Fetch event data
+  useEffect(() => {
+    const fetchEvent = async () => {
+      try {
+        const [eventRes, eventsRes] = await Promise.all([
+          eventAPI.getById(id!),
+          eventAPI.getAll()
+        ]);
+        setEvent(eventRes.data);
+        setAllEvents(eventsRes.data);
+      } catch (error) {
+        toast.error('Failed to load event');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchEvent();
+  }, [id]);
+
+  if (loading) {
+    return <div className="p-6 text-center">Loading...</div>;
+  }
 
   if (!event) {
     return (
@@ -220,11 +109,41 @@ export default function EventDetails() {
     );
   }
 
-  // Calculate totals dynamically from expenses
-  const calculatedTotal = event.expenses?.reduce((s: number, exp: typeof event.expenses[0]) => s + (exp.amount || 0), 0) || 0;
-  const { settlements, totalPerPerson } = computeSettlements(event.members, event.expenses);
+  // Calculate totals
+  const calculatedTotal = event.expenses?.reduce((s, exp) => s + (exp.amount || 0), 0) || 0;
+  const totalPerPerson = event.members.length > 0 ? calculatedTotal / event.members.length : 0;
 
-  const handleAddExpense = () => {
+  // Compute settlements
+  const computeSettlements = () => {
+    if (event.members.length === 0) return { settlements: [] as { from: string; fromId: string; to: string; toId: string; amount: number }[], totalPerPerson: 0 };
+    
+    const balances = event.members.map(m => {
+      const paid = event.expenses.filter(e => e.paidBy === m.id).reduce((s, e) => s + e.amount, 0);
+      return { ...m, paid, balance: paid - totalPerPerson };
+    });
+    
+    const settlements: { from: string; fromId: string; to: string; toId: string; amount: number }[] = [];
+    const debtors = balances.filter(b => b.balance < -0.01).map(b => ({ ...b }));
+    const creditors = balances.filter(b => b.balance > 0.01).map(b => ({ ...b }));
+    
+    debtors.forEach(debtor => {
+      creditors.forEach(creditor => {
+        if (Math.abs(debtor.balance) > 0.01 && creditor.balance > 0.01) {
+          const amount = Math.min(Math.abs(debtor.balance), creditor.balance);
+          settlements.push({ from: debtor.name, fromId: debtor.id, to: creditor.name, toId: creditor.id, amount });
+          debtor.balance += amount;
+          creditor.balance -= amount;
+        }
+      });
+    });
+    
+    return { settlements, totalPerPerson };
+  };
+
+  const { settlements } = computeSettlements();
+
+  // Handlers
+  const handleAddExpense = async () => {
     if (!expenseForm.description.trim() || !expenseForm.amount || !expenseForm.paidBy) {
       toast.error("Please fill all fields");
       return;
@@ -235,73 +154,58 @@ export default function EventDetails() {
       return;
     }
     
-    // Validate custom split if selected
-    let customSplitData: Record<string, number> | undefined;
-    if (expenseForm.splitType === "custom") {
-      const splits: Record<string, number> = {};
-      let totalSplit = 0;
+    try {
+      const newExpense: Expense = {
+        id: `ex${Date.now()}`,
+        description: expenseForm.description,
+        amount,
+        paidBy: expenseForm.paidBy,
+        splitType: expenseForm.splitType,
+        date: new Date().toISOString().split("T")[0],
+      };
       
-      for (const member of event.members) {
-        const splitAmount = parseFloat(expenseForm.customSplits[member.id] || "0");
-        if (isNaN(splitAmount) || splitAmount < 0) {
-          toast.error(`Invalid split amount for ${member.name}`);
-          return;
-        }
-        splits[member.id] = splitAmount;
-        totalSplit += splitAmount;
-      }
-      
-      if (Math.abs(totalSplit - amount) > 0.01) {
-        toast.error(`Split amounts must sum to total: ₹${amount.toLocaleString("en-IN")} (current: ₹${totalSplit.toLocaleString("en-IN")})`);
-        return;
-      }
-      
-      customSplitData = splits;
+      const updatedExpenses = [...event.expenses, newExpense];
+      const response = await eventAPI.update(id!, { expenses: updatedExpenses });
+      setEvent(response.data);
+      toast.success("Expense added!");
+      setAddExpenseModal(false);
+      setExpenseForm({ description: "", amount: "", paidBy: "", splitType: "equal", customSplits: {}, selectedMembers: [] });
+    } catch (error: any) {
+      console.error('Add expense error:', error);
+      toast.error(error.response?.data?.message || 'Failed to add expense');
     }
-    
-    const newExpense = {
-      id: `ex${Date.now()}`,
-      description: expenseForm.description,
-      amount,
-      paidBy: expenseForm.paidBy,
-      splitType: expenseForm.splitType,
-      customSplits: customSplitData,
-      date: new Date().toISOString().split("T")[0],
-    };
-    
-    const updatedExpenses = [...event.expenses, newExpense];
-    
-    updateEvent({ expenses: updatedExpenses });
-    toast.success("Expense added!");
-    setAddExpenseModal(false);
-    setExpenseForm({ description: "", amount: "", paidBy: "", splitType: "equal", customSplits: {}, selectedMembers: [] });
   };
 
-  const handleDeleteExpense = (expenseId: string, description: string) => {
+  const handleDeleteExpense = async (expenseId: string, description: string) => {
     if (confirm(`Delete expense "${description}"?`)) {
-      const updatedExpenses = event.expenses.filter((e: typeof event.expenses[0]) => e.id !== expenseId);
-      const newTotal = updatedExpenses.reduce((sum: number, e: typeof event.expenses[0]) => sum + e.amount, 0);
-      updateEvent({ expenses: updatedExpenses, totalAmount: newTotal });
-      toast.success("Expense deleted!");
+      try {
+        const updatedExpenses = event.expenses.filter(e => e.id !== expenseId);
+        const response = await eventAPI.update(id!, { expenses: updatedExpenses });
+        setEvent(response.data);
+        toast.success("Expense deleted!");
+      } catch (error: any) {
+        console.error('Delete expense error:', error);
+        toast.error(error.response?.data?.message || 'Failed to delete expense');
+      }
     }
   };
 
-  const handleEditExpense = (expense: typeof event.expenses[0]) => {
-    setEditingExpense(expense.id);
-    setEditExpenseForm({ 
-      description: expense.description, 
-      amount: expense.amount.toString(), 
+  const handleEditExpense = (expense: Expense) => {
+    setEditExpenseForm({
+      id: expense.id,
+      description: expense.description,
+      amount: expense.amount.toString(),
       paidBy: expense.paidBy,
       splitType: expense.splitType || "equal",
       customSplits: expense.customSplits ? Object.fromEntries(
         Object.entries(expense.customSplits).map(([k, v]) => [k, v.toString()])
       ) : {},
-      selectedMembers: expense.selectedMembers || event.members.map((m: typeof event.members[0]) => m.id)
+      selectedMembers: expense.selectedMembers || event.members.map(m => m.id)
     });
     setEditExpenseModal(true);
   };
 
-  const handleUpdateExpense = () => {
+  const handleUpdateExpense = async () => {
     if (!editExpenseForm.description.trim() || !editExpenseForm.amount || !editExpenseForm.paidBy) {
       toast.error("Please fill all fields");
       return;
@@ -312,100 +216,94 @@ export default function EventDetails() {
       return;
     }
     
-    // Validate custom split if selected
-    let customSplitData: Record<string, number> | undefined;
-    if (editExpenseForm.splitType === "custom") {
-      const splits: Record<string, number> = {};
-      let totalSplit = 0;
+    try {
+      const updatedExpenses = event.expenses.map(e => 
+        e.id === editExpenseForm.id ? { 
+          ...e, 
+          description: editExpenseForm.description, 
+          amount, 
+          paidBy: editExpenseForm.paidBy,
+          splitType: editExpenseForm.splitType
+        } : e
+      );
       
-      for (const member of event.members) {
-        const splitAmount = parseFloat(editExpenseForm.customSplits[member.id] || "0");
-        if (isNaN(splitAmount) || splitAmount < 0) {
-          toast.error(`Invalid split amount for ${member.name}`);
-          return;
-        }
-        splits[member.id] = splitAmount;
-        totalSplit += splitAmount;
-      }
-      
-      if (Math.abs(totalSplit - amount) > 0.01) {
-        toast.error(`Split amounts must sum to total: ₹${amount.toLocaleString("en-IN")} (current: ₹${totalSplit.toLocaleString("en-IN")})`);
-        return;
-      }
-      
-      customSplitData = splits;
+      const response = await eventAPI.update(id!, { expenses: updatedExpenses });
+      setEvent(response.data);
+      toast.success("Expense updated!");
+      setEditExpenseModal(false);
+    } catch (error: any) {
+      console.error('Update expense error:', error);
+      toast.error(error.response?.data?.message || 'Failed to update expense');
     }
-    
-    const updatedExpenses = event.expenses.map((e: typeof event.expenses[0]) => 
-      e.id === editingExpense ? { 
-        ...e, 
-        description: editExpenseForm.description, 
-        amount, 
-        paidBy: editExpenseForm.paidBy,
-        splitType: editExpenseForm.splitType,
-        customSplits: customSplitData
-      } : e
-    );
-    
-    updateEvent({ expenses: updatedExpenses });
-    toast.success("Expense updated!");
-    setEditExpenseModal(false);
-    setEditingExpense(null);
   };
 
-  const handleAddMember = () => {
+  const handleAddMember = async () => {
     if (!memberForm.name.trim()) {
       toast.error("Please enter a name");
       return;
     }
     
-    const newMember = {
-      id: `m${Date.now()}`,
-      name: memberForm.name,
-      avatar: memberForm.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2),
-      paid: 0,
-      owes: 0,
-    };
-    
-    updateEvent({ members: [...event.members, newMember] });
-    toast.success("Member added!");
-    setAddMemberModal(false);
-    setMemberForm({ name: "", email: "" });
+    try {
+      const newMember: Member = {
+        id: `m${Date.now()}`,
+        name: memberForm.name,
+        avatar: memberForm.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2),
+        paid: 0,
+        owes: 0,
+      };
+      
+      const response = await eventAPI.update(id!, { members: [...event.members, newMember] });
+      setEvent(response.data);
+      toast.success("Member added!");
+      setAddMemberModal(false);
+      setMemberForm({ name: "" });
+    } catch (error: any) {
+      console.error('Add member error:', error);
+      toast.error(error.response?.data?.message || 'Failed to add member');
+    }
   };
 
-  const handleDeleteMember = (memberId: string, name: string) => {
+  const handleDeleteMember = async (memberId: string, name: string) => {
     if (event.members.length <= 1) {
       toast.error("Event must have at least one member");
       return;
     }
     if (confirm(`Remove member "${name}"?`)) {
-      updateEvent({ members: event.members.filter((m: typeof event.members[0]) => m.id !== memberId) });
-      toast.success("Member removed!");
+      try {
+        const response = await eventAPI.update(id!, { members: event.members.filter(m => m.id !== memberId) });
+        setEvent(response.data);
+        toast.success("Member removed!");
+      } catch (error: any) {
+        console.error('Remove member error:', error);
+        toast.error(error.response?.data?.message || 'Failed to remove member');
+      }
     }
   };
 
-  const handleSettleUp = (fromMemberId: string, toMemberId: string, amount: number) => {
-    const fromMember = event.members.find((m: typeof event.members[0]) => m.id === fromMemberId);
-    const toMember = event.members.find((m: typeof event.members[0]) => m.id === toMemberId);
+  const handleSettleUp = async (fromMemberId: string, toMemberId: string, amount: number) => {
+    const fromMember = event.members.find(m => m.id === fromMemberId);
+    const toMember = event.members.find(m => m.id === toMemberId);
     
     if (!fromMember || !toMember) return;
     
-    // Create a settlement expense to record the payment
-    const settlementExpense = {
-      id: `settle${Date.now()}`,
-      description: `Settlement: ${fromMember.name} paid ${toMember.name}`,
-      amount: amount,
-      paidBy: fromMemberId,
-      splitType: "custom" as const,
-      customSplits: { [toMemberId]: amount },
-      date: new Date().toISOString().split("T")[0],
-      isSettlement: true,
-    };
-    
-    const updatedExpenses = [...event.expenses, settlementExpense];
-    updateEvent({ expenses: updatedExpenses });
-    
-    toast.success(`₹${Math.round(amount).toLocaleString("en-IN")} settled from ${fromMember.name} to ${toMember.name}!`);
+    try {
+      const settlementExpense: Expense = {
+        id: `settle${Date.now()}`,
+        description: `Settlement: ${fromMember.name} paid ${toMember.name}`,
+        amount: amount,
+        paidBy: fromMemberId,
+        splitType: "custom",
+        customSplits: { [toMemberId]: amount },
+        date: new Date().toISOString().split("T")[0],
+        isSettlement: true,
+      };
+      
+      const response = await eventAPI.update(id!, { expenses: [...event.expenses, settlementExpense] });
+      setEvent(response.data);
+      toast.success(`₹${Math.round(amount).toLocaleString("en-IN")} settled!`);
+    } catch (error) {
+      toast.error('Failed to settle');
+    }
   };
 
   return (
@@ -451,8 +349,8 @@ export default function EventDetails() {
                 <p className="text-sm">No expenses yet. Add your first expense!</p>
               </div>
             ) : (
-              event.expenses.map((ex: typeof event.expenses[0], i: number) => {
-                const paidByMember = event.members.find((m: typeof event.members[0]) => m.id === ex.paidBy);
+              event.expenses.map((ex, i) => {
+                const paidByMember = event.members.find(m => m.id === ex.paidBy);
                 const splitAmt = event.members.length > 0 ? ex.amount / event.members.length : 0;
                 return (
                   <motion.div key={ex.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.05 }}
@@ -487,8 +385,8 @@ export default function EventDetails() {
               <h3 className="font-semibold text-foreground flex items-center gap-2"><Users size={16} className="text-primary" /> Members ({event.members.length})</h3>
               <button onClick={() => setAddMemberModal(true)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"><Plus size={14} /></button>
             </div>
-            {event.members.map((m: typeof event.members[0]) => {
-              const paid = event.expenses.filter((e: typeof event.expenses[0]) => e.paidBy === m.id).reduce((s: number, e: typeof event.expenses[0]) => s + e.amount, 0);
+            {event.members.map((m) => {
+              const paid = event.expenses.filter(e => e.paidBy === m.id).reduce((s, e) => s + e.amount, 0);
               const balance = paid - totalPerPerson;
               return (
                 <div key={m.id} className="flex items-center gap-3 p-3 border-b border-border last:border-0 group">
@@ -517,7 +415,7 @@ export default function EventDetails() {
               </div>
             ) : (
               <div className="space-y-3">
-                {settlements.map((s: typeof settlements[0], i: number) => (
+                {settlements.map((s, i) => (
                   <div key={i} className="bg-muted rounded-xl p-3">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-xs text-muted-foreground">
@@ -537,6 +435,7 @@ export default function EventDetails() {
         </div>
       </div>
 
+      {/* Add Expense Modal */}
       <Modal open={addExpenseModal} onClose={() => setAddExpenseModal(false)} title="Add Expense">
         <div className="space-y-4">
           <div>
@@ -551,137 +450,9 @@ export default function EventDetails() {
             <label className="text-xs font-medium text-muted-foreground block mb-1">Paid By</label>
             <select value={expenseForm.paidBy} onChange={e => setExpenseForm(p => ({ ...p, paidBy: e.target.value }))} className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground">
               <option value="">Select member</option>
-              {event.members.map((m: typeof event.members[0]) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {event.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Split Type</label>
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => setExpenseForm(p => ({ ...p, splitType: "equal", customSplits: {}, selectedMembers: [] }))} className={cn("py-2 rounded-xl border-2 text-sm font-medium transition-colors", expenseForm.splitType === "equal" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/50")}>Equal</button>
-              <button onClick={() => {
-                // Pre-fill with equal split amounts when switching to custom
-                const totalAmount = parseFloat(expenseForm.amount || "0");
-                const equalShare = event.members.length > 0 && totalAmount > 0 ? totalAmount / event.members.length : 0;
-                const preFilledSplits: Record<string, string> = {};
-                event.members.forEach((m: typeof event.members[0]) => {
-                  preFilledSplits[m.id] = equalShare > 0 ? equalShare.toFixed(0) : "0";
-                });
-                setExpenseForm(p => ({ ...p, splitType: "custom", customSplits: preFilledSplits, selectedMembers: event.members.map((m: typeof event.members[0]) => m.id) }));
-              }} className={cn("py-2 rounded-xl border-2 text-sm font-medium transition-colors", expenseForm.splitType === "custom" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/50")}>Custom</button>
-              <button onClick={() => {
-                // Select specific members
-                setExpenseForm(p => ({ ...p, splitType: "selective", customSplits: {}, selectedMembers: event.members.map((m: typeof event.members[0]) => m.id) }));
-              }} className={cn("py-2 rounded-xl border-2 text-sm font-medium transition-colors", expenseForm.splitType === "selective" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/50")}>Select</button>
-            </div>
-          </div>
-          
-          {/* Select Members */}
-          {expenseForm.splitType === "selective" && (
-            <div className="space-y-3 p-3 bg-muted/50 rounded-xl">
-              <label className="text-xs font-medium text-muted-foreground block">Select Members to Split</label>
-              {event.members.map((member: typeof event.members[0]) => {
-                const isSelected = expenseForm.selectedMembers.includes(member.id);
-                return (
-                  <label key={member.id} className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={e => {
-                        const newSelected = e.target.checked
-                          ? [...expenseForm.selectedMembers, member.id]
-                          : expenseForm.selectedMembers.filter(id => id !== member.id);
-                        setExpenseForm(p => ({ ...p, selectedMembers: newSelected }));
-                      }}
-                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                    />
-                    <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
-                      {member.avatar[0]}
-                    </div>
-                    <span className="text-sm text-foreground flex-1">{member.name}</span>
-                  </label>
-                );
-              })}
-              <p className="text-xs text-muted-foreground pt-2">
-                {expenseForm.selectedMembers.length} of {event.members.length} members selected
-              </p>
-            </div>
-          )}
-          
-          {/* Custom Split Configuration */}
-          {(expenseForm.splitType === "custom" || expenseForm.splitType === "selective") && (
-            <div className="space-y-3 p-3 bg-muted/50 rounded-xl">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground block">
-                  {expenseForm.splitType === "selective" ? "Split Amounts (Selected Members)" : "Custom Split Amounts"}
-                </label>
-                <button 
-                  onClick={() => {
-                    // Reset to equal split amounts
-                    const totalAmount = parseFloat(expenseForm.amount || "0");
-                    const membersToSplit = expenseForm.splitType === "selective" 
-                      ? event.members.filter((m: typeof event.members[0]) => expenseForm.selectedMembers.includes(m.id))
-                      : event.members;
-                    const equalShare = membersToSplit.length > 0 && totalAmount > 0 ? totalAmount / membersToSplit.length : 0;
-                    const resetSplits: Record<string, string> = {};
-                    membersToSplit.forEach((m: typeof event.members[0]) => {
-                      resetSplits[m.id] = equalShare > 0 ? equalShare.toFixed(0) : "0";
-                    });
-                    setExpenseForm(p => ({ ...p, customSplits: resetSplits }));
-                  }}
-                  className="text-xs text-primary hover:text-primary/80 font-medium"
-                >
-                  Reset to Equal
-                </button>
-              </div>
-              {(expenseForm.splitType === "selective" 
-                ? event.members.filter((m: typeof event.members[0]) => expenseForm.selectedMembers.includes(m.id))
-                : event.members
-              ).map((member: typeof event.members[0]) => {
-                const totalAmount = parseFloat(expenseForm.amount || "0");
-                const membersToSplit = expenseForm.splitType === "selective" 
-                  ? event.members.filter((m: typeof event.members[0]) => expenseForm.selectedMembers.includes(m.id))
-                  : event.members;
-                const equalShare = membersToSplit.length > 0 && totalAmount > 0 ? totalAmount / membersToSplit.length : 0;
-                const currentValue = expenseForm.customSplits[member.id] || (equalShare > 0 ? equalShare.toFixed(0) : "0");
-                return (
-                  <div key={member.id} className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
-                      {member.avatar[0]}
-                    </div>
-                    <span className="text-sm text-foreground flex-1">{member.name}</span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-muted-foreground">₹</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={currentValue}
-                        onChange={e => {
-                          const newValue = e.target.value;
-                          setExpenseForm(p => ({
-                            ...p,
-                            customSplits: { ...p.customSplits, [member.id]: newValue }
-                          }));
-                        }}
-                        className="w-20 px-2 py-1.5 text-sm bg-background rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground text-right"
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="flex items-center justify-between pt-2 border-t border-border">
-                <span className="text-xs text-muted-foreground">Total Split:</span>
-                <span className={cn(
-                  "text-sm font-medium",
-                  Math.abs(Object.values(expenseForm.customSplits).reduce((s, v) => s + (parseFloat(v) || 0), 0) - parseFloat(expenseForm.amount || "0")) < 0.01
-                    ? "text-success"
-                    : "text-destructive"
-                )}>
-                  ₹{Object.values(expenseForm.customSplits).reduce((s, v) => s + (parseFloat(v) || 0), 0).toLocaleString("en-IN")} / ₹{parseFloat(expenseForm.amount || "0").toLocaleString("en-IN")}
-                </span>
-              </div>
-            </div>
-          )}
-          
           <div className="flex gap-3 pt-2">
             <button onClick={() => setAddExpenseModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
             <button onClick={handleAddExpense} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Add Expense</button>
@@ -689,6 +460,7 @@ export default function EventDetails() {
         </div>
       </Modal>
 
+      {/* Edit Expense Modal */}
       <Modal open={editExpenseModal} onClose={() => setEditExpenseModal(false)} title="Edit Expense">
         <div className="space-y-4">
           <div>
@@ -702,65 +474,9 @@ export default function EventDetails() {
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Paid By</label>
             <select value={editExpenseForm.paidBy} onChange={e => setEditExpenseForm(p => ({ ...p, paidBy: e.target.value }))} className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground">
-              {event.members.map((m: typeof event.members[0]) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {event.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Split Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setEditExpenseForm(p => ({ ...p, splitType: "equal", customSplits: {} }))} className={cn("py-2 rounded-xl border-2 text-sm font-medium transition-colors", editExpenseForm.splitType === "equal" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/50")}>Equal Split</button>
-              <button onClick={() => setEditExpenseForm(p => ({ ...p, splitType: "custom" }))} className={cn("py-2 rounded-xl border-2 text-sm font-medium transition-colors", editExpenseForm.splitType === "custom" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/50")}>Custom Split</button>
-            </div>
-          </div>
-          
-          {/* Custom Split Configuration for Edit */}
-          {editExpenseForm.splitType === "custom" && (
-            <div className="space-y-3 p-3 bg-muted/50 rounded-xl">
-              <label className="text-xs font-medium text-muted-foreground block">Custom Split Amounts</label>
-              {event.members.map((member: typeof event.members[0]) => {
-                const totalAmount = parseFloat(editExpenseForm.amount || "0");
-                const equalShare = event.members.length > 0 && totalAmount > 0 ? totalAmount / event.members.length : 0;
-                const currentValue = editExpenseForm.customSplits[member.id] || "";
-                return (
-                  <div key={member.id} className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold flex-shrink-0">
-                      {member.avatar[0]}
-                    </div>
-                    <span className="text-sm text-foreground flex-1">{member.name}</span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-muted-foreground">₹</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={currentValue}
-                        onChange={e => {
-                          const newValue = e.target.value;
-                          setEditExpenseForm(p => ({
-                            ...p,
-                            customSplits: { ...p.customSplits, [member.id]: newValue }
-                          }));
-                        }}
-                        placeholder={equalShare > 0 ? equalShare.toFixed(0) : "0"}
-                        className="w-20 px-2 py-1.5 text-sm bg-background rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground text-right"
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="flex items-center justify-between pt-2 border-t border-border">
-                <span className="text-xs text-muted-foreground">Total Split:</span>
-                <span className={cn(
-                  "text-sm font-medium",
-                  Math.abs(Object.values(editExpenseForm.customSplits).reduce((s, v) => s + (parseFloat(v) || 0), 0) - parseFloat(editExpenseForm.amount || "0")) < 0.01
-                    ? "text-success"
-                    : "text-destructive"
-                )}>
-                  ₹{Object.values(editExpenseForm.customSplits).reduce((s, v) => s + (parseFloat(v) || 0), 0).toLocaleString("en-IN")} / ₹{parseFloat(editExpenseForm.amount || "0").toLocaleString("en-IN")}
-                </span>
-              </div>
-            </div>
-          )}
-          
           <div className="flex gap-3 pt-2">
             <button onClick={() => setEditExpenseModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
             <button onClick={handleUpdateExpense} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Update Expense</button>
@@ -768,26 +484,18 @@ export default function EventDetails() {
         </div>
       </Modal>
 
+      {/* Add Member Modal */}
       <Modal open={addMemberModal} onClose={() => setAddMemberModal(false)} title="Add Member">
-        <AddMemberForm 
-          allEvents={allEvents}
-          existingMembers={event.members}
-          onAdd={(name, email) => {
-            const newMember = {
-              id: `m${Date.now()}`,
-              name: name,
-              avatar: name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2),
-              paid: 0,
-              owes: 0,
-              email: email || undefined,
-            };
-            updateEvent({ members: [...event.members, newMember] });
-            toast.success(`${name} added to event!`);
-            setAddMemberModal(false);
-            setMemberForm({ name: "", email: "" });
-          }}
-          onCancel={() => setAddMemberModal(false)}
-        />
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Name</label>
+            <input type="text" value={memberForm.name} onChange={e => setMemberForm(p => ({ ...p, name: e.target.value }))} placeholder="Member name" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => setAddMemberModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+            <button onClick={handleAddMember} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Add Member</button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

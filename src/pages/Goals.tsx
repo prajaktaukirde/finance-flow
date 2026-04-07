@@ -1,24 +1,40 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Plus, Calendar, TrendingUp, Trash2 } from "lucide-react";
 import { PageHeader, Badge } from "@/components/UI";
 import { GlassCard } from "@/components/StatCard";
 import { Modal } from "@/components/Modal";
-import { goals as initialGoals } from "@/data/mockData";
 import { cn } from "@/lib/utils";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { goalAPI } from "@/services/api";
 
 const GOAL_ICONS = ["🏠", "✈️", "🚗", "💍", "📚", "💻", "🏋️", "🌴", "💰", "🎯"];
 const GOAL_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 const emptyGoal = { name: "", target: "", current: "", deadline: "", category: "Savings", icon: "🎯", color: GOAL_COLORS[0] };
 
 export default function Goals() {
-  const [goals, setGoals] = useState(initialGoals);
+  const [goals, setGoals] = useState<any[]>([]);
   const [addModal, setAddModal] = useState(false);
-  const [selected, setSelected] = useState<typeof goals[0] | null>(null);
+  const [selected, setSelected] = useState<any | null>(null);
   const [contribution, setContribution] = useState("");
   const [form, setForm] = useState(emptyGoal);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  // Fetch goals from API
+  useEffect(() => {
+    const fetchGoals = async () => {
+      try {
+        const response = await goalAPI.getAll();
+        setGoals(response.data);
+      } catch (error) {
+        toast.error('Failed to load goals');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchGoals();
+  }, []);
 
   const totalTarget = goals.reduce((s, g) => s + g.target, 0);
   const totalCurrent = goals.reduce((s, g) => s + g.current, 0);
@@ -38,36 +54,60 @@ export default function Goals() {
     return e;
   };
 
-  const handleSaveGoal = () => {
+  const handleSaveGoal = async () => {
     const errs = validate();
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
-    setGoals(prev => [...prev, {
-      id: Date.now().toString(), name: form.name, target: Number(form.target),
-      current: Number(form.current) || 0, deadline: form.deadline,
-      category: form.category, icon: form.icon, color: form.color
-    }]);
-    toast.success("Goal created! 🎯");
-    setAddModal(false);
+    try {
+      const response = await goalAPI.create({
+        name: form.name,
+        target: Number(form.target),
+        current: Number(form.current) || 0,
+        deadline: new Date(form.deadline),
+        icon: form.icon,
+        color: form.color
+      });
+      setGoals(prev => [...prev, response.data]);
+      toast.success("Goal created! 🎯");
+      setAddModal(false);
+    } catch (error: any) {
+      console.error('Goal creation error:', error);
+      toast.error(error.response?.data?.message || 'Failed to create goal');
+    }
   };
 
-  const handleAddContribution = () => {
+  const handleAddContribution = async () => {
     const amount = Number(contribution);
     if (!contribution || isNaN(amount) || amount <= 0) {
       toast.error("Enter a valid contribution amount.");
       return;
     }
     if (!selected) return;
-    setGoals(prev => prev.map(g => g.id === selected.id ? { ...g, current: Math.min(g.current + amount, g.target) } : g));
-    toast.success(`₹${amount.toLocaleString("en-IN")} added to ${selected.name}! 💰`);
-    setContribution("");
-    setSelected(null);
+    try {
+      const response = await goalAPI.update(selected._id, {
+        ...selected,
+        current: Math.min(selected.current + amount, selected.target)
+      });
+      setGoals(prev => prev.map(g => g._id === selected._id ? response.data : g));
+      toast.success(`₹${amount.toLocaleString("en-IN")} added to ${selected.name}! 💰`);
+      setContribution("");
+      setSelected(null);
+    } catch (error: any) {
+      console.error('Goal update error:', error);
+      toast.error(error.response?.data?.message || 'Failed to update goal');
+    }
   };
 
-  const handleDeleteGoal = () => {
+  const handleDeleteGoal = async () => {
     if (!selected) return;
-    setGoals(prev => prev.filter(g => g.id !== selected.id));
-    toast.success("Goal deleted!");
-    setSelected(null);
+    try {
+      await goalAPI.delete(selected._id);
+      setGoals(prev => prev.filter(g => g._id !== selected._id));
+      toast.success("Goal deleted!");
+      setSelected(null);
+    } catch (error: any) {
+      console.error('Goal delete error:', error);
+      toast.error(error.response?.data?.message || 'Failed to delete goal');
+    }
   };
 
   return (
@@ -99,7 +139,7 @@ export default function Goals() {
           const daysLeft = Math.ceil((new Date(g.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
           const monthlyNeeded = (g.target - g.current) / Math.max(1, Math.ceil(daysLeft / 30));
           return (
-            <motion.div key={g.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} className="glass-card rounded-xl p-5 hover-lift">
+            <motion.div key={g._id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} className="glass-card rounded-xl p-5 hover-lift">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl" style={{ backgroundColor: g.color + "20" }}>{g.icon}</div>

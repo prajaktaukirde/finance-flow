@@ -58,7 +58,7 @@ const App = () => (
             <Route path="/recurring" element={<Recurring />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/events" element={<Events />} />
-            <Route path="/events/:id" element={<EventDetails />} />
+            <Route path="/events/:id" element={<EventDetails />} />//dy segments for event details
             <Route path="/profile" element={<Profile />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/help" element={<Help />} />

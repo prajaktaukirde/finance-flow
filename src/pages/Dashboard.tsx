@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -9,10 +10,12 @@ import { StatCard } from "@/components/StatCard";
 import { GlassCard } from "@/components/StatCard";
 import { PageHeader } from "@/components/UI";
 import { Modal } from "@/components/Modal";
-import { transactions, monthlyData, categorySpending, budgets, goals } from "@/data/mockData";
 import { formatINR } from "@/utils/currency";
 import { cn } from "@/lib/utils";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { transactionAPI, budgetAPI } from "@/services/api";
+
+const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
 
 const RADIAN = Math.PI / 180;
 const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
@@ -44,12 +47,154 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [addModal, setAddModal] = useState(false);
   const [txType, setTxType] = useState<"income" | "expense">("expense");
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [budgets, setBudgets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Transaction form state
+  const [txForm, setTxForm] = useState({
+    description: "",
+    amount: "",
+    date: new Date().toISOString().split('T')[0],
+    category: "Food & Dining",
+    account: "Savings"
+  });
+
+  // Fetch data from API
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error('Please sign in first');
+      navigate('/signin');
+      return;
+    }
+    
+    const fetchData = async () => {
+      try {
+        const [txRes, budgetRes] = await Promise.all([
+          transactionAPI.getAll(),
+          budgetAPI.getAll()
+        ]);
+        setTransactions(txRes.data);
+        setBudgets(budgetRes.data);
+      } catch (error: any) {
+        if (error.response?.status === 401) {
+          toast.error('Session expired. Please sign in again.');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          navigate('/signin');
+        } else {
+          toast.error('Failed to load data');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [navigate]);
+
   const recentTransactions = transactions.slice(0, 7);
   const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const totalExpenses = Math.abs(transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0));
   const balance = totalIncome - totalExpenses;
+
+  // Calculate monthly data for chart (last 6 months)
+  const monthlyData = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    
+    for (let i = 5; i >= 0; i--) {
+      const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthName = month.toLocaleDateString("en-IN", { month: "short" });
+      const monthStart = month.getTime();
+      const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0).getTime();
+      
+      const monthTransactions = transactions.filter(t => {
+        const txDate = new Date(t.date).getTime();
+        return txDate >= monthStart && txDate <= monthEnd;
+      });
+      
+      const income = monthTransactions
+        .filter(t => t.type === "income")
+        .reduce((s, t) => s + Math.abs(t.amount), 0);
+      
+      const expenses = monthTransactions
+        .filter(t => t.type === "expense")
+        .reduce((s, t) => s + Math.abs(t.amount), 0);
+      
+      months.push({ month: monthName, income, expenses });
+    }
+    return months;
+  }, [transactions]);
+
+  // Calculate category spending for pie chart
+  const categorySpending = useMemo(() => {
+    const categoryTotals: Record<string, number> = {};
+    
+    transactions
+      .filter(t => t.type === "expense")
+      .forEach(t => {
+        const cat = t.category || "Other";
+        categoryTotals[cat] = (categoryTotals[cat] || 0) + Math.abs(t.amount);
+      });
+    
+    return Object.entries(categoryTotals)
+      .map(([name, value], index) => ({
+        name,
+        value,
+        color: COLORS[index % COLORS.length]
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
+  }, [transactions]);
+
+  // Calculate savings rate
+  const savingsRate = totalIncome > 0 
+    ? (((totalIncome - totalExpenses) / totalIncome) * 100).toFixed(1)
+    : "0";
+
+  const handleSaveTransaction = async () => {
+    if (!txForm.description.trim() || !txForm.amount) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+    
+    const amount = parseFloat(txForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+    
+    try {
+      const response = await transactionAPI.create({
+        description: txForm.description,
+        amount: txType === "expense" ? -amount : amount,
+        type: txType,
+        category: txForm.category,
+        date: new Date(txForm.date),
+        account: txForm.account
+      });
+      
+      setTransactions(prev => [response.data, ...prev]);
+      toast.success("Transaction added!");
+      setAddModal(false);
+      
+      // Reset form
+      setTxForm({
+        description: "",
+        amount: "",
+        date: new Date().toISOString().split('T')[0],
+        category: "Food & Dining",
+        account: "Savings"
+      });
+    } catch (error: any) {
+      console.error('Transaction error:', error);
+      toast.error(error.response?.data?.message || "Failed to add transaction");
+    }
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -67,7 +212,7 @@ export default function Dashboard() {
         <StatCard title="Total Balance" value={formatINR(balance)} subtitle="Across all accounts" icon={<Wallet size={20} />} trend={{ value: 8.2, label: "vs last month" }} gradient="gradient-primary" delay={0} />
         <StatCard title="Monthly Income" value={formatINR(totalIncome)} subtitle="This month" icon={<TrendingUp size={20} />} trend={{ value: 12.5, label: "vs last month" }} gradient="bg-gradient-income" delay={1} />
         <StatCard title="Monthly Expenses" value={formatINR(totalExpenses)} subtitle="This month" icon={<TrendingDown size={20} />} trend={{ value: -3.8, label: "vs last month" }} gradient="bg-gradient-expense" delay={2} />
-        <StatCard title="Savings Rate" value="33.5%" subtitle="Of monthly income" icon={<Target size={20} />} trend={{ value: 2.1, label: "vs last month" }} gradient="bg-gradient-savings" delay={3} />
+        <StatCard title="Savings Rate" value={`${savingsRate}%`} subtitle="Of monthly income" icon={<Target size={20} />} trend={{ value: 2.1, label: "vs last month" }} gradient="bg-gradient-savings" delay={3} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
@@ -130,7 +275,7 @@ export default function Dashboard() {
           <div className="space-y-1">
             {recentTransactions.map((t, i) => (
               <motion.div
-                key={t.id}
+                key={t._id}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.6 + i * 0.05 }}
@@ -161,7 +306,7 @@ export default function Dashboard() {
               const pct = Math.min((b.spent / b.allocated) * 100, 100);
               const isOver = pct >= 95;
               return (
-                <div key={b.id}>
+                <div key={b._id}>
                   <div className="flex items-center justify-between text-xs mb-1.5">
                     <span className="flex items-center gap-1.5 font-medium text-foreground">
                       <span>{b.icon}</span> {b.category}
@@ -203,24 +348,58 @@ export default function Dashboard() {
               💸 Expense
             </button>
           </div>
-          {[{ label: "Description", type: "text", placeholder: "Enter description" },
-            { label: "Amount (₹)", type: "number", placeholder: "0.00" },
-            { label: "Date", type: "date", placeholder: "" }].map(({ label, type, placeholder }) => (
-            <div key={label}>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">{label}</label>
-              <input type={type} placeholder={placeholder}
-                className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors text-foreground" />
-            </div>
-          ))}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Description</label>
+            <input 
+              type="text" 
+              value={txForm.description}
+              onChange={e => setTxForm(p => ({ ...p, description: e.target.value }))}
+              placeholder="Enter description"
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors text-foreground" 
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Amount (₹)</label>
+            <input 
+              type="number" 
+              value={txForm.amount}
+              onChange={e => setTxForm(p => ({ ...p, amount: e.target.value }))}
+              placeholder="0.00"
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors text-foreground" 
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Date</label>
+            <input 
+              type="date" 
+              value={txForm.date}
+              onChange={e => setTxForm(p => ({ ...p, date: e.target.value }))}
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors text-foreground" 
+            />
+          </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Category</label>
-            <select className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground">
+            <select 
+              value={txForm.category}
+              onChange={e => setTxForm(p => ({ ...p, category: e.target.value }))}
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
+            >
               {["Food & Dining", "Transportation", "Shopping", "Entertainment", "Health & Fitness", "Bills & Utilities", "Education", "Income"].map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Account</label>
+            <select 
+              value={txForm.account}
+              onChange={e => setTxForm(p => ({ ...p, account: e.target.value }))}
+              className="w-full px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
+            >
+              {["Savings", "Checking", "Cash", "Credit Card"].map(a => <option key={a}>{a}</option>)}
             </select>
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={() => setAddModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-            <button onClick={() => { setAddModal(false); toast.success("Transaction added!"); }} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Save</button>
+            <button onClick={handleSaveTransaction} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-blue hover:opacity-90 transition-opacity">Save</button>
           </div>
         </div>
       </Modal>

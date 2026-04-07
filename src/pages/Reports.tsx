@@ -1,13 +1,12 @@
 import { motion } from "framer-motion";
-import { Download, FileText, BarChart3, Calendar, X, TrendingUp, TrendingDown, Wallet, Target } from "lucide-react";
+import { Download, FileText, BarChart3, Calendar, X, TrendingUp, TrendingDown, Wallet, Target, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/UI";
 import { GlassCard } from "@/components/StatCard";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from "recharts";
-import { monthlyData } from "@/data/mockData";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +15,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { transactionAPI, budgetAPI, goalAPI } from "@/services/api";
+
+const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
 
 const reportTypes = [
   { id: "monthly", name: "Monthly Summary", icon: "📅", desc: "Income, expenses & savings breakdown", color: "#3b82f6" },
@@ -42,33 +44,104 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-const categoryData = [
-  { name: "Food & Dining", value: 15000, color: "#ef4444" },
-  { name: "Transportation", value: 8000, color: "#f59e0b" },
-  { name: "Shopping", value: 12000, color: "#8b5cf6" },
-  { name: "Entertainment", value: 5000, color: "#ec4899" },
-  { name: "Bills & Utilities", value: 10000, color: "#06b6d4" },
-  { name: "Healthcare", value: 3000, color: "#22c55e" },
-];
-
-const budgetData = [
-  { category: "Food", budget: 18000, actual: 15000 },
-  { category: "Transport", budget: 10000, actual: 8000 },
-  { category: "Shopping", budget: 15000, actual: 12000 },
-  { category: "Entertainment", budget: 6000, actual: 5000 },
-  { category: "Bills", budget: 12000, actual: 10000 },
-];
-
-const goalsData = [
-  { name: "Emergency Fund", target: 100000, current: 65000, deadline: "Dec 2025" },
-  { name: "Vacation", target: 50000, current: 30000, deadline: "Jun 2025" },
-  { name: "New Laptop", target: 80000, current: 45000, deadline: "Aug 2025" },
-];
-
 export default function Reports() {
   const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
   const [selectedReport, setSelectedReport] = useState<typeof reportTypes[0] | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [budgets, setBudgets] = useState<any[]>([]);
+  const [goals, setGoals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [txRes, budgetRes, goalRes] = await Promise.all([
+          transactionAPI.getAll(),
+          budgetAPI.getAll(),
+          goalAPI.getAll()
+        ]);
+        setTransactions(txRes.data);
+        setBudgets(budgetRes.data);
+        setGoals(goalRes.data);
+      } catch (error) {
+        toast.error('Failed to load data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  // Calculate monthly data
+  const monthlyData = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    
+    for (let i = 5; i >= 0; i--) {
+      const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthName = month.toLocaleDateString("en-IN", { month: "short" });
+      const monthStart = month.getTime();
+      const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0).getTime();
+      
+      const monthTx = transactions.filter(t => {
+        const txDate = new Date(t.date).getTime();
+        return txDate >= monthStart && txDate <= monthEnd;
+      });
+      
+      const income = monthTx.filter(t => t.type === "income").reduce((s, t) => s + Math.abs(t.amount), 0);
+      const expenses = monthTx.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+      
+      months.push({ month: monthName, income, expenses, savings: Math.max(0, income - expenses) });
+    }
+    return months;
+  }, [transactions]);
+
+  // Calculate category data
+  const categoryData = useMemo(() => {
+    const categoryTotals: Record<string, number> = {};
+    
+    transactions
+      .filter(t => t.type === "expense")
+      .forEach(t => {
+        const cat = t.category || "Other";
+        categoryTotals[cat] = (categoryTotals[cat] || 0) + Math.abs(t.amount);
+      });
+    
+    return Object.entries(categoryTotals)
+      .map(([name, value], index) => ({
+        name,
+        value,
+        color: COLORS[index % COLORS.length]
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
+  }, [transactions]);
+
+  // Budget vs actual data
+  const budgetData = useMemo(() => {
+    return budgets.map(b => ({
+      category: b.category,
+      budget: b.allocated,
+      actual: b.spent
+    }));
+  }, [budgets]);
+
+  // Goals data
+  const goalsData = useMemo(() => {
+    return goals.map(g => ({
+      name: g.name,
+      target: g.target,
+      current: g.current,
+      deadline: new Date(g.deadline).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+    }));
+  }, [goals]);
+
+  // Stats
+  const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + Math.abs(t.amount), 0);
+  const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+  const netSavings = totalIncome - totalExpenses;
+  const savingsRate = totalIncome > 0 ? ((netSavings / totalIncome) * 100).toFixed(1) : "0";
 
   const generatePDF = (reportType: typeof reportTypes[0]) => {
     setGeneratingPDF(reportType.id);

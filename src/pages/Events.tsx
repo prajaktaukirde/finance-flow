@@ -5,33 +5,39 @@ import { useNavigate } from "react-router-dom";
 import { PageHeader, Badge } from "@/components/UI";
 import { GlassCard } from "@/components/StatCard";
 import { Modal } from "@/components/Modal";
-import { events as initialEvents } from "@/data/mockData";
 import { cn } from "@/lib/utils";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { eventAPI } from "@/services/api";
 
 const emptyForm = { name: "", date: "", category: "Travel", members: "" };
 const CATEGORIES = ["Travel", "Party", "Dining", "Household", "Entertainment", "Sports", "Other"];
 const ICONS: Record<string, string> = { Travel: "✈️", Party: "🎉", Dining: "🍽️", Household: "🏠", Entertainment: "🎬", Sports: "⚽", Other: "📅" };
 
-const STORAGE_KEY = "finance-flow-events";
-
 export default function Events() {
-  const [events, setEvents] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : initialEvents;
-  });
+  const [events, setEvents] = useState<any[]>([]);
   const [editingEvent, setEditingEvent] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: "", date: "", category: "Travel" });
   const [editModal, setEditModal] = useState(false);
-
-  // Persist events to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
-  }, [events]);
   const [addModal, setAddModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  // Fetch events from API
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const response = await eventAPI.getAll();
+        setEvents(response.data);
+      } catch (error) {
+        toast.error('Failed to load events');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchEvents();
+  }, []);
   // Calculate total from actual expenses, not stored totalAmount
   const totalAmount = events.reduce((sum, event) => {
     const eventTotal = event.expenses?.reduce((s: number, exp: typeof event.expenses[0]) => s + (exp.amount || 0), 0) || 0;
@@ -46,61 +52,94 @@ export default function Events() {
     return e;
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const errs = validate();
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
     const memberNames = form.members.split(",").map(m => m.trim()).filter(Boolean);
     if (memberNames.length === 0) { setFormErrors({ members: "Add at least one member." }); return; }
-    const newEvent = {
-      id: Date.now().toString(),
-      name: form.name, icon: ICONS[form.category] || "📅",
-      date: form.date, totalAmount: 0,
-      members: memberNames.map((name, idx) => ({ id: String(idx + 1), name, avatar: name[0].toUpperCase(), paid: 0, owes: 0 })),
-      expenses: [], status: "active", category: form.category
-    };
-    setEvents(prev => [newEvent, ...prev]);
-    toast.success(`Event "${form.name}" created! 🎉`);
-    setAddModal(false);
-    setForm(emptyForm);
-    setTimeout(() => navigate(`/events/${newEvent.id}`), 300);
-  };
-
-  const handleDelete = (id: string, name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm(`Are you sure you want to delete "${name}"?`)) {
-      setEvents(prev => prev.filter(ev => ev.id !== id));
-      toast.success(`"${name}" deleted!`);
+    try {
+      const response = await eventAPI.create({
+        name: form.name,
+        icon: ICONS[form.category] || "📅",
+        date: form.date,
+        totalAmount: 0,
+        members: memberNames.map((name, idx) => ({ id: String(idx + 1), name, avatar: name[0].toUpperCase(), paid: 0, owes: 0 })),
+        expenses: [],
+        status: "active",
+        category: form.category
+      });
+      setEvents(prev => [response.data, ...prev]);
+      toast.success(`Event "${form.name}" created! 🎉`);
+      setAddModal(false);
+      setForm(emptyForm);
+      setTimeout(() => navigate(`/events/${response.data._id}`), 300);
+    } catch (error: any) {
+      console.error('Event creation error:', error);
+      toast.error(error.response?.data?.message || 'Failed to create event');
     }
   };
 
-  const handleEdit = (e: React.MouseEvent, event: typeof events[0]) => {
+  const handleDelete = async (_id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setEditingEvent(event.id);
+    if (confirm(`Are you sure you want to delete "${name}"?`)) {
+      try {
+        await eventAPI.delete(_id);
+        setEvents(prev => prev.filter(ev => ev._id !== _id));
+        toast.success(`"${name}" deleted!`);
+      } catch (error: any) {
+        console.error('Event delete error:', error);
+        toast.error(error.response?.data?.message || 'Failed to delete event');
+      }
+    }
+  };
+
+  const handleEdit = (e: React.MouseEvent, event: any) => {
+    e.stopPropagation();
+    setEditingEvent(event._id);
     setEditForm({ name: event.name, date: event.date, category: event.category });
     setEditModal(true);
   };
 
-  const handleUpdateEvent = () => {
+  const handleUpdateEvent = async () => {
     if (!editForm.name.trim()) {
       toast.error("Event name is required");
       return;
     }
-    setEvents(prev => prev.map(ev => 
-      ev.id === editingEvent 
-        ? { ...ev, name: editForm.name, date: editForm.date, category: editForm.category, icon: ICONS[editForm.category] || "📅" }
-        : ev
-    ));
-    toast.success("Event updated!");
-    setEditModal(false);
-    setEditingEvent(null);
+    try {
+      const response = await eventAPI.update(editingEvent!, {
+        name: editForm.name,
+        date: editForm.date,
+        category: editForm.category,
+        icon: ICONS[editForm.category] || "📅"
+      });
+      setEvents(prev => prev.map(ev => 
+        ev._id === editingEvent ? response.data : ev
+      ));
+      toast.success("Event updated!");
+      setEditModal(false);
+      setEditingEvent(null);
+    } catch (error: any) {
+      console.error('Event update error:', error);
+      toast.error(error.response?.data?.message || 'Failed to update event');
+    }
   };
 
-  const handleSettleEvent = (e: React.MouseEvent, eventId: string) => {
+  const handleSettleEvent = async (e: React.MouseEvent, eventId: string) => {
     e.stopPropagation();
-    setEvents(prev => prev.map(ev => 
-      ev.id === eventId ? { ...ev, status: ev.status === "active" ? "settled" : "active" } : ev
-    ));
-    toast.success("Event status updated!");
+    try {
+      const event = events.find(ev => ev._id === eventId);
+      if (!event) return;
+      const response = await eventAPI.update(eventId, {
+        status: event.status === "active" ? "settled" : "active"
+      });
+      setEvents(prev => prev.map(ev => 
+        ev._id === eventId ? response.data : ev
+      ));
+      toast.success("Event status updated!");
+    } catch (error: any) {
+      console.error('Event status error:', error);
+      toast.error(error.response?.data?.message || 'Failed to update status');
+    }
   };
 
   return (
@@ -132,14 +171,14 @@ export default function Events() {
           const calculatedTotal = event.expenses?.reduce((s: number, exp: typeof event.expenses[0]) => s + (exp.amount || 0), 0) || 0;
           const perPerson = event.members.length > 0 ? calculatedTotal / event.members.length : 0;
           return (
-            <motion.div key={event.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
-              onClick={() => navigate(`/events/${event.id}`)} className="glass-card rounded-xl p-5 hover-lift cursor-pointer relative group">
+            <motion.div key={event._id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
+              onClick={() => navigate(`/events/${event._id}`)} className="glass-card rounded-xl p-5 hover-lift cursor-pointer relative group">
               <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
                 <button onClick={(e) => handleEdit(e, event)}
                   className="p-1.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all">
                   <Edit2 size={14} />
                 </button>
-                <button onClick={(e) => handleDelete(event.id, event.name, e)}
+                <button onClick={(e) => handleDelete(event._id, event.name, e)}
                   className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
                   <Trash2 size={14} />
                 </button>
@@ -177,7 +216,7 @@ export default function Events() {
                 <span className="flex items-center gap-1"><CalendarDays size={11} /> {new Date(event.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}</span>
                 <div className="flex items-center gap-2">
                   <button 
-                    onClick={(e) => handleSettleEvent(e, event.id)}
+                    onClick={(e) => handleSettleEvent(e, event._id)}
                     className={cn(
                       "px-2 py-0.5 rounded text-xs font-medium transition-colors",
                       event.status === "active" 

@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Plus, Download, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Plus, Download, ArrowUpRight, ArrowDownRight, Loader2 } from "lucide-react";
 import { PageHeader, SearchInput, SelectInput, Pagination, Badge } from "@/components/UI";
 import { Modal } from "@/components/Modal";
 import { GlassCard } from "@/components/StatCard";
-import { transactions as initialTransactions } from "@/data/mockData";
 import { cn } from "@/lib/utils";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { transactionAPI } from "@/services/api";
 
 const PAGE_SIZE = 10;
 
@@ -21,16 +21,32 @@ const CATEGORIES = ["Food & Dining", "Transportation", "Shopping", "Entertainmen
 const emptyForm = { description: "", amount: "", date: "", category: "Food & Dining" };
 
 export default function Transactions() {
-  const [allTx, setAllTx] = useState(initialTransactions);
+  const [allTx, setAllTx] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [addModal, setAddModal] = useState(false);
-  const [editItem, setEditItem] = useState<typeof allTx[0] | null>(null);
+  const [editItem, setEditItem] = useState<any | null>(null);
   const [txType, setTxType] = useState<"income" | "expense">("expense");
   const [form, setForm] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Fetch transactions from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await transactionAPI.getAll();
+        setAllTx(response.data);
+      } catch (error) {
+        toast.error('Failed to load transactions');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const categories = ["all", ...Array.from(new Set(allTx.map(t => t.category)))];
 
@@ -52,8 +68,8 @@ export default function Transactions() {
     setAddModal(true);
   };
 
-  const openEdit = (t: typeof allTx[0]) => {
-    setForm({ description: t.description, amount: String(Math.abs(t.amount)), date: t.date, category: t.category });
+  const openEdit = (t: any) => {
+    setForm({ description: t.description, amount: String(Math.abs(t.amount)), date: new Date(t.date).toISOString().split('T')[0], category: t.category });
     setTxType(t.type as "income" | "expense");
     setFormErrors({});
     setEditItem(t);
@@ -68,32 +84,49 @@ export default function Transactions() {
     return e;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const errs = validateForm();
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
-    if (editItem) {
-      setAllTx(prev => prev.map(t => t.id === editItem.id ? {
-        ...t, description: form.description, amount: txType === "expense" ? -Math.abs(Number(form.amount)) : Math.abs(Number(form.amount)),
-        date: form.date, category: form.category, type: txType
-      } : t));
-      toast.success("Transaction updated! ✅");
-    } else {
-      const newTx = {
-        id: Date.now().toString(), description: form.description,
-        amount: txType === "expense" ? -Math.abs(Number(form.amount)) : Math.abs(Number(form.amount)),
-        date: form.date, category: form.category, type: txType, account: "Savings"
-      };
-      setAllTx(prev => [newTx, ...prev]);
-      toast.success("Transaction added! 💰");
+    
+    try {
+      if (editItem) {
+        const response = await transactionAPI.update(editItem._id, {
+          description: form.description,
+          amount: txType === "expense" ? -Math.abs(Number(form.amount)) : Math.abs(Number(form.amount)),
+          date: new Date(form.date),
+          category: form.category,
+          type: txType
+        });
+        setAllTx(prev => prev.map(t => t._id === editItem._id ? response.data : t));
+        toast.success("Transaction updated! ✅");
+      } else {
+        const response = await transactionAPI.create({
+          description: form.description,
+          amount: txType === "expense" ? -Math.abs(Number(form.amount)) : Math.abs(Number(form.amount)),
+          date: new Date(form.date),
+          category: form.category,
+          type: txType,
+          account: "Savings"
+        });
+        setAllTx(prev => [response.data, ...prev]);
+        toast.success("Transaction added! 💰");
+      }
+      setAddModal(false); setEditItem(null);
+    } catch (error) {
+      toast.error('Failed to save transaction');
     }
-    setAddModal(false); setEditItem(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!editItem) return;
-    setAllTx(prev => prev.filter(t => t.id !== editItem.id));
-    toast.success("Transaction deleted!");
-    setAddModal(false); setEditItem(null);
+    try {
+      await transactionAPI.delete(editItem._id);
+      setAllTx(prev => prev.filter(t => t._id !== editItem._id));
+      toast.success("Transaction deleted!");
+      setAddModal(false); setEditItem(null);
+    } catch (error) {
+      toast.error('Failed to delete transaction');
+    }
   };
 
   const handleExport = () => {
@@ -109,6 +142,12 @@ export default function Transactions() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      {loading ? (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      ) : (
+        <>
       <PageHeader title="Transactions" subtitle={`${filtered.length} transactions found`}>
         <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
           <Download size={15} /> Export CSV
@@ -139,7 +178,7 @@ export default function Transactions() {
           </div>
         ) : (
           paginated.map((t, i) => (
-            <motion.div key={t.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
+            <motion.div key={t._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
               onClick={() => openEdit(t)}
               className="grid grid-cols-[auto_1fr_auto] sm:grid-cols-[2fr_1fr_1fr_1fr_auto] gap-4 items-center px-5 py-3.5 border-b border-border last:border-0 hover:bg-muted/40 cursor-pointer transition-colors">
               <div className="flex items-center gap-3">
@@ -202,6 +241,8 @@ export default function Transactions() {
           </div>
         </div>
       </Modal>
+        </>
+      )}
     </div>
   );
 }
